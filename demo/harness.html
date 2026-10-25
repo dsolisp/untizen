@@ -11,6 +11,10 @@
   Open with:  chrome --allow-file-access-from-files demo/harness.html?page=home&theme=glass&focus=3
   Parameters: page=home|apps|settings   theme=original|glass|dark
               focus=<slot index>        libpage=<library page>
+              recents=<comma separated actions, newest first>  live=<vconf source>
+
+  recents/live mirror the launcher's journal and the TV's live input, so shots can
+  show the hero and dock reordering exactly like Inputs.Ordered/Recents.DockActions.
 -->
 <style>
 @font-face{font-family:"Quiet Inter";src:url("../launcher/assets/fonts/QuietInter-Medium.ttf");font-weight:500}
@@ -40,6 +44,30 @@ const page = params.get("page") || "home";
 const themeName = params.get("theme") || "original";
 const focus = parseInt(params.get("focus") || "0", 10);
 const libpage = parseInt(params.get("libpage") || "0", 10);
+const recents = (params.get("recents") || "").split(",").map(s => s.trim())
+                  .filter(s => s.startsWith("app:") || s.startsWith("hdmi:"));
+const live = parseInt(params.get("live") || "14", 10);
+
+/* Mirrors launcher/src/Recents.cs: catalogue order, hero order and dock fill. */
+const INPUTS = [
+  {name:"PS5",  source:14, tagline:"Let's play.", desc:"Console · HDMI",
+   hero:"hero-ps5.svg",  portrait:"portrait-ps5.svg", dock:"ps5"},
+  {name:"Xbox", source:13, tagline:"Game on.",    desc:"Console · HDMI",
+   hero:"hero-xbox.svg", portrait:"feature-xbox.svg", dock:"xbox"},
+  {name:"PC",   source:16, tagline:"Back to it.", desc:"Computer · HDMI",
+   hero:"hero-pc.svg",   portrait:"feature-hdmi.svg", dock:"pc"},
+];
+INPUTS.forEach(i => i.action = "hdmi:" + i.source);
+const DEFAULT_DOCK = ["app:org.tizen.netflix-app", "app:com.samsung.tv.cobalt-yt",
+                      "app:org.tizen.primevideo", "hdmi:14", "hdmi:13"];
+function orderedInputs() {
+  const order = [];
+  const liveInput = INPUTS.find(i => i.source === live);
+  if (liveInput) order.push(liveInput);
+  for (const a of recents) { const i = INPUTS.find(x => x.action === a); if (i && !order.includes(i)) order.push(i); }
+  for (const i of INPUTS) if (!order.includes(i)) order.push(i);
+  return order;
+}
 
 const THEMES = {
   original: {bg:"free-background.svg", window:"#F5F5F7", ink:"#1D1D1F", muted:"#6E6E73",
@@ -106,31 +134,28 @@ const slots = [];
 function slot(name, row, x, y, w, h, draw) { slots.push({name, row, x, y, w, h, draw}); }
 
 if (page === "home") {
-  slot("PS5", 0, 80, 262, 1040, 442, (el, f) => {
-    el.appendChild(Object.assign(document.createElement("img"), {src: A + "feature-ps5.svg"}));
-    el.lastChild.style.cssText = "left:0;top:0;width:1040px;height:442px";
-    const l1 = document.createElement("div"); l1.className = "txt semibold";
-    l1.textContent = "PS5"; l1.style.cssText = "left:44px;top:52px;width:550px;height:40px;font-size:24px;color:#DBE8FF";
-    const l2 = document.createElement("div"); l2.className = "txt display";
-    l2.textContent = "Let's play."; l2.style.cssText = "left:40px;top:124px;width:560px;height:100px;font-size:72px;color:#FFFFFF";
-    const l3 = document.createElement("div"); l3.className = "txt";
-    l3.textContent = "Switch to HDMI"; l3.style.cssText = "left:46px;top:246px;width:440px;height:48px;font-size:30px;color:#E0EDFF";
-    el.append(l1, l2, l3);
+  const order = orderedInputs();
+  const xs = [80, 1160, 1520];
+  order.forEach((input, i) => {
+    const w = i === 0 ? 1040 : 320;
+    slot(input.name, 0, xs[i], 262, w, 442, el => {
+      const im = document.createElement("img");
+      im.src = A + (i === 0 ? input.hero : input.portrait);
+      im.style.cssText = `left:0;top:0;width:${w}px;height:442px`;
+      el.appendChild(im);
+      if (i === 0) {
+        const l1 = document.createElement("div"); l1.className = "txt semibold";
+        l1.textContent = input.name; l1.style.cssText = "left:44px;top:52px;width:460px;height:40px;font-size:24px;color:#DBE8FF";
+        const l2 = document.createElement("div"); l2.className = "txt display";
+        l2.textContent = input.tagline; l2.style.cssText = "left:40px;top:124px;width:470px;height:100px;font-size:72px;color:#FFFFFF";
+        const l3 = document.createElement("div"); l3.className = "txt";
+        l3.textContent = "Switch to HDMI"; l3.style.cssText = "left:46px;top:246px;width:430px;height:48px;font-size:30px;color:#E0EDFF";
+        el.append(l1, l2, l3);
+      }
+    });
+    text(input.name, xs[i], 716, w, 45, 31, T.ink, "Semibold");
+    text(input.desc, xs[i], 760, w, 36, 24, T.muted);
   });
-  slot("Xbox", 0, 1160, 262, 320, 442, el => {
-    el.appendChild(Object.assign(document.createElement("img"), {src: A + "feature-xbox.svg"}));
-    el.lastChild.style.cssText = "left:0;top:0;width:320px;height:442px";
-  });
-  slot("PC", 0, 1520, 262, 320, 442, el => {
-    el.appendChild(Object.assign(document.createElement("img"), {src: A + "feature-hdmi.svg"}));
-    el.lastChild.style.cssText = "left:0;top:0;width:320px;height:442px";
-  });
-  text("PS5", 80, 716, 1040, 45, 31, T.ink, "Semibold");
-  text("Console · HDMI", 80, 760, 1040, 36, 24, T.muted);
-  text("Xbox", 1160, 716, 320, 45, 31, T.ink, "Semibold");
-  text("Console · HDMI", 1160, 760, 320, 36, 24, T.muted);
-  text("PC", 1520, 716, 320, 45, 31, T.ink, "Semibold");
-  text("Computer · HDMI", 1520, 760, 320, 36, 24, T.muted);
 }
 
 if (page === "home") img("glass-shelf.svg", 0, 784, 1920, 280);
@@ -165,14 +190,19 @@ fetch(A + "apps.json").then(r => r.json()).then(apps => {
     text(apps.filter(a => !a.Utility).length + " apps", 80, 218, 500, 30, 21, T.muted);
   }
   if (page === "home") {
-    const dock = [["Netflix", "netflix"], ["YouTube", "youtube"], ["Prime Video", "prime"],
-                  ["PS5", "ps5"], ["Xbox", "xbox"], ["Your Apps", "apps"]];
-    dock.forEach((d, n) => {
+    const allowed = apps.map(a => "app:" + a.Id).concat(INPUTS.map(i => i.action));
+    const dock = [];
+    for (const a of recents.concat(DEFAULT_DOCK).concat(allowed)) {
+      if (dock.length >= 5) break;
+      if (allowed.includes(a) && !dock.includes(a)) dock.push(a);
+    }
+    const tile = (action, n) => {
       const x = Math.round(80 + n * (253.333 + 48));
       img("shadow-dock.svg", x - 24, 842, 301, 190, {opacity: focus === 3 + n ? 1 : 0.55});
-      const official = apps.find(a => a.Id === {"netflix":"org.tizen.netflix-app","youtube":"com.samsung.tv.cobalt-yt",
-        "prime":"org.tizen.primevideo"}[d[1]]);
-      slot(d[0], 1, x, 854, 253, 126, el => {
+      const input = INPUTS.find(i => i.action === action);
+      const official = input ? null : apps.find(a => "app:" + a.Id === action);
+      const label = official ? official.Name : input ? input.name : action;
+      slot(label, 1, x, 854, 253, 126, el => {
         if (official) {
           el.style.background = official.Background;
           const im = document.createElement("img");
@@ -181,12 +211,15 @@ fetch(A + "apps.json").then(r => r.json()).then(apps => {
           el.appendChild(im);
         } else {
           const im = document.createElement("img");
-          im.src = A + "free-dock-" + d[1] + ".svg";
+          im.src = A + "free-dock-" + (input ? input.dock : "apps") + ".svg";
           im.style.cssText = "left:0;top:0;width:253px;height:126px";
           el.appendChild(im);
         }
       });
-    });
+    };
+    dock.forEach(tile);
+    tile("page:1", dock.length);
+    slots[slots.length - 1].name = "Your Apps";
   }
   finish(apps);
 });
@@ -243,7 +276,7 @@ function finish(apps) {
   const order = slots.map((s, i) => i).sort((a, b) => (a === focus ? 1 : 0) - (b === focus ? 1 : 0));
   for (const i of order) {
     const s = slots[i];
-    if (s.row === 0) img(s.name === "PS5" ? "shadow-hero.svg" : "shadow-portrait.svg",
+    if (s.row === 0) img(s.w > 400 ? "shadow-hero.svg" : "shadow-portrait.svg",
                          s.x - 24, s.y - 10, s.w + 48, s.h + 64, {opacity: i === focus ? 1 : 0.55});
     const el = card(s.x, s.y, s.w, s.h, s.row === 1 ? 22 : s.row === 2 ? 24 : s.row === 3 ? 18 : s.row === 4 ? 34 : 18,
                     T.card, i === focus, s.row);

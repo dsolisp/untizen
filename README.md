@@ -22,6 +22,9 @@ Your TV boots into a shopping mall. UnTizen gives you back the display:
   apps as proper brand cards, quick settings for volume/brightness/sleep, three
   themes, and a shortcut to native Bluetooth controller pairing. No ad tiles,
   no "recommended for you" rows, no 20-second boot animation.
+- **A home that follows the household**: the hero card is the input you used
+  last, and the dock keeps the five most recent apps and inputs, newest first.
+  The journal lives in `/var/tmp/quiet-home-recents.json`.
 - **A debloat planner** that disables registry flags for advertising, ACR,
   TV Plus, hotel/B2B signage and cloud-gaming helpers — one reviewed group at a
   time, with generated field-specific rollback SQL. Nothing is deleted.
@@ -37,15 +40,17 @@ installer, not a custom OS, and not a promise that every package is spyware.
 |---|---|---|
 | ![home, original theme](docs/media/home-original.png) | ![home, glass theme](docs/media/home-glass.png) | ![home, dark theme](docs/media/home-dark.png) |
 
-| App library | Quick settings |
-|---|---|
-| ![app library](docs/media/library.png) | ![quick settings](docs/media/settings.png) |
+| App library | Quick settings | Last used first |
+|---|---|---|
+| ![app library](docs/media/library.png) | ![quick settings](docs/media/settings.png) | ![home ordered by recents](docs/media/home-recents.png) |
 
 ![navigation demo](docs/media/demo.gif)
 
 The pictures are rendered offline from `demo/harness.html`, a static mirror of the
 launcher layout that loads the same SVG/PNG assets the TV draws. Re-generate them
 with `python3 demo/render.py` (headless Chrome + Pillow, no TV needed).
+The `home-recents` shot feeds the harness the same journal the launcher writes
+(`recents=` and `live=` query parameters) to show the reordered hero and dock.
 
 ## Supported models
 

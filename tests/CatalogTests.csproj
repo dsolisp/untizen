@@ -5,6 +5,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../launcher/src/AppLibrary.cs" />
+    <Compile Include="../launcher/src/Recents.cs" />
     <Compile Include="CatalogTests.cs" />
   </ItemGroup>
 </Project>

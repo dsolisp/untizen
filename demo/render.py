@@ -64,13 +64,16 @@ def downscale(src, dst, width):
     return dst
 
 
-# README gallery: one shot per theme plus the two secondary pages.
+# README gallery: one shot per theme, the two secondary pages, and the
+# recents-driven home (Xbox hero because the journal says the household
+# played on Xbox last while the TV sits on no featured input).
 SHOTS = [
     ("home-original", "page=home&theme=original&focus=0"),
     ("home-glass", "page=home&theme=glass&focus=3"),
     ("home-dark", "page=home&theme=dark&focus=0"),
     ("library", "page=apps&theme=glass&focus=0"),
     ("settings", "page=settings&theme=original&focus=8"),
+    ("home-recents", "page=home&theme=glass&focus=0&live=0&recents=hdmi:13,app:com.samsung.tv.cobalt-yt"),
 ]
 
 # GIF storyline: walk the dock focus, open the library, then flip themes.
@@ -84,6 +87,8 @@ SEQUENCE = [
     "page=home&theme=original&focus=6",
     "page=home&theme=original&focus=7",
     "page=home&theme=original&focus=8",
+    "page=home&theme=original&focus=0&live=0&recents=hdmi:13,app:com.samsung.tv.cobalt-yt",
+    "page=home&theme=original&focus=3&live=0&recents=hdmi:13,app:com.samsung.tv.cobalt-yt",
     "page=apps&theme=original&focus=0",
     "page=apps&theme=original&focus=5",
     "page=settings&theme=original&focus=0",
