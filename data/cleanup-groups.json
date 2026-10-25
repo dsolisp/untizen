@@ -1,0 +1,161 @@
+{
+  "catalog_version": 1,
+  "description": "Shared catalog of Samsung Tizen bloat groups. Every entry is evidence-based: app IDs were read from a read-only registry inventory of a real TV (docs/01-inventory.md), never guessed.",
+  "matching": "Each group resolves against the device snapshot with fnmatch globs over package_app_info.app_id. A group never names a TV; profiles/<model>-<firmware>.json selects the groups that apply and adds or drops single IDs.",
+  "keep_active": [
+    {
+      "pattern": "unified-drm-*",
+      "reason": "Widevine, PlayReady, HDCP and keystore DRM stack. Netflix, Disney+ and other streaming apps fail playback without it."
+    },
+    {
+      "pattern": "com.samsung.tv.cobalt-*",
+      "reason": "Cobalt engine hosting YouTube and other preinstalled streaming apps."
+    },
+    {
+      "pattern": "com.samsung.tv.coba.setting*",
+      "reason": "Stock settings UI on 2022+ home shells. Disabling it removes the picture, sound and network menus."
+    },
+    {
+      "pattern": "com.samsung.tv.coba.newhome",
+      "reason": "Stock home shell. UnTizen replaces the launcher container instead of disabling the shell underneath it."
+    },
+    {
+      "pattern": "com.samsung.tv.coba.plateauhome",
+      "reason": "Alternative stock home shell used by some firmware revisions."
+    },
+    {
+      "pattern": "com.samsung.tv.coba.homeversion",
+      "reason": "Home version resolver; the shell fails to start without it."
+    },
+    {
+      "pattern": "com.samsung.tv.bixby-promotion",
+      "reason": "Container UnTizen installs its launcher into. Disabling it removes the custom home."
+    },
+    {
+      "pattern": "org.tizen.ep-system-manager",
+      "reason": "Broadcast and system manager; live TV, source switching and power handling depend on it."
+    },
+    {
+      "pattern": "org.tizen.epg",
+      "reason": "Programme guide for broadcast TV."
+    }
+  ],
+  "groups": {
+    "advertising": {
+      "description": "ACR, viewing analysis, ad serving and promotion components. Package names identify purpose; this is not a traffic audit.",
+      "risk": "low",
+      "patterns": [
+        "com.samsung.tizen.samsung-analytics",
+        "com.samsung.tv.acr",
+        "com.samsung.tv.iacr",
+        "com.samsung.tv.canalysis-service",
+        "com.samsung.tv.contents-recognition-dbmgr",
+        "com.samsung.tv.adagent-service",
+        "com.samsung.tv.coba.adagent",
+        "com.samsung.tv.pisa-service",
+        "org.tizen.pisa-control-service",
+        "com.samsung.tv.targeted-ad-service",
+        "com.samsung.tv.ad-web-framework",
+        "com.samsung.tv.adplayer",
+        "adplatform.ADPlayer",
+        "*.PromotionApp"
+      ]
+    },
+    "tv-plus": {
+      "description": "Samsung TV Plus free-streaming service and its startup hooks. Removes access to that app until restored.",
+      "risk": "low",
+      "patterns": [
+        "*.tvplusstandalone",
+        "com.samsung.tv.tvplus",
+        "com.samsung.tv.tvPlusDeeplinker"
+      ]
+    },
+    "voice": {
+      "description": "Bixby, Alexa, wake-word engines and voice UI. Opt in only if voice functions are unwanted; the remote's mic button stops working.",
+      "risk": "medium",
+      "patterns": [
+        "com.samsung.tv.alexa-*",
+        "*.AmazonAlexa",
+        "com.samsung.tv.bixby-context-client",
+        "com.samsung.tv.bixby-prov",
+        "com.samsung.tv.bixbycapsuleviewer",
+        "com.samsung.tv.mybixby",
+        "com.samsung.tv.ondevice-voice",
+        "com.samsung.tv.utterance-recommender-*",
+        "com.samsung.tv.voice-instant-app",
+        "com.samsung.tv.voiceassistant-music",
+        "com.samsung.tv.wakeup-engine-*",
+        "com.samsung.tv.cnvoice",
+        "com.samsung.tv.cnvoice-assistant",
+        "com.samsung.tv.farfieldvoice",
+        "org.tizen.voice-*",
+        "org.tizen.tv.swu-voice-notification"
+      ]
+    },
+    "context": {
+      "description": "AI companions, context-aware suggestions and content-grab features. May remove useful smart functions such as 'what is this actor'.",
+      "risk": "medium",
+      "patterns": [
+        "com.samsung.tv.AICompanion*",
+        "com.samsung.tv.ai-discovery-*",
+        "com.samsung.tv.context-aware-*",
+        "com.samsung.tv.vif",
+        "content-grab-service"
+      ]
+    },
+    "smart-extras": {
+      "description": "SmartThings, ambient sound, always-on-vision dashboard, gaming background helpers and Samsung Health. Optional for an HDMI-focused setup.",
+      "risk": "medium",
+      "patterns": [
+        "com.samsung.tizen.smartthings-*",
+        "com.samsung.tv.SmartThingsApp",
+        "com.samsung.tv.smartthings-partial-app",
+        "com.samsung.tv.smartthingsfind-*",
+        "com.samsung.tv.coba.smartthings",
+        "com.samsung.tv.ambient-sound",
+        "com.samsung.tv.aov-dashboard",
+        "com.samsung.tv.ghdaemon",
+        "com.samsung.tv.ghservice",
+        "com.samsung.tv.health-mde-*",
+        "com.samsung.tv.coba.healthview",
+        "com.samsung.tv.samsung-health",
+        "samsunghealth-service-tv"
+      ]
+    },
+    "gaming-hub": {
+      "description": "Cloud gaming hub and its overlays. Safe to disable when consoles are connected over HDMI; input handling is independent of these packages.",
+      "risk": "low",
+      "patterns": [
+        "com.samsung.tv.gamebar",
+        "com.samsung.tv.gamehome",
+        "com.samsung.tv.gamepadguide",
+        "com.samsung.tv.gaminghub",
+        "com.samsung.tv.home.game",
+        "*.XboxGamePass"
+      ]
+    },
+    "hotel-b2b": {
+      "description": "Hospitality and B2B signage stacks shipped on retail units: hotel menus, cloning, remote device management, hit-comp and banner services.",
+      "risk": "low",
+      "patterns": [
+        "org.tizen.ep-hotel-*",
+        "org.tizen.ephotel-cloning",
+        "com.samsung.ep.coba.hotel",
+        "com.samsung.ep.hotel-*",
+        "org.tizen.rdm-client",
+        "com.samsung.rdm.b2b.general",
+        "com.samsung.rdm.custom-home",
+        "com.samsung.hitcomp",
+        "com.samsung.mtm-banner"
+      ]
+    },
+    "light-shell": {
+      "description": "Stock sidebar and web browser. Apply only after the launcher, the QuickLaunch bridge and settings routing are validated.",
+      "risk": "high",
+      "patterns": [
+        "com.samsung.tv.home.sidebar",
+        "org.tizen.browser"
+      ]
+    }
+  }
+}

@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512"
+     role="img" aria-label="UnTizen" style="color:#1428A0">
+  <title>UnTizen — make your Samsung Tizen TV quiet again</title>
+  <g fill="none" stroke="currentColor" stroke-width="46" stroke-linecap="round">
+    <path d="M256.89,122.95 A206,128 -20 1 1 169.80,154.65"/>
+  </g>
+  <rect x="-23" y="-182" width="46"
+        height="158" rx="23" fill="currentColor"
+        transform="translate(256,256) rotate(-20)"/>
+</svg>

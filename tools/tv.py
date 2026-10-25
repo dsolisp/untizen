@@ -1,0 +1,250 @@
+#!/usr/bin/env python3
+"""Explicit-target access for UnTizen, driven by per-device profiles. See docs/02-access.md."""
+import argparse
+import asyncio
+import base64
+import gzip
+import hashlib
+import ipaddress
+import json
+import os
+from pathlib import Path, PurePosixPath
+import re
+import shlex
+import sys
+from datetime import datetime, timezone
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "vendor"))
+sys.path.insert(0, str(ROOT / "tools"))
+import cleanup_groups
+from samsung_tv_root.archive_root import probe, _check_target, _capture
+from samsung_tv_root.sdb import SdbClient, find_sdb
+
+STAGE = "/home/owner/share/tmp/sdk_tools/untizen"
+BACKUP_DIR = "/opt/usr/share/untizen-backups"
+
+
+def script_environment(profile):
+    """Recipes read this device's layout from its profile instead of hardcoding another TV's paths."""
+    values = {
+        "UNTIZEN_CONTAINER": profile["container"],
+        "UNTIZEN_SETTINGS_CONTAINER": profile.get("settings_container", ""),
+        "UNTIZEN_STAGE": STAGE,
+        "UNTIZEN_BACKUP_DIR": BACKUP_DIR,
+        "UNTIZEN_REGISTRY": profile["registry"],
+    }
+    assignments = " ".join(f"{key}={shlex.quote(str(value))}" for key, value in values.items())
+    return f"{assignments}; export {' '.join(values)}; "
+
+
+def load_profiles():
+    """Every per-device profile keyed by upper-cased model code."""
+    profiles = {}
+    for path in sorted((ROOT / "profiles").glob("*.json")):
+        data = cleanup_groups.load_profile(path)
+        key = data["model"].upper()
+        if key in profiles:
+            raise ValueError(f"{path.name} and {profiles[key][0].name} both claim model {key}; keep one profile per model.")
+        profiles[key] = (path, data)
+    return profiles
+
+
+def resolve_profile(profiles, observed_model, firmware, profile_arg, model_arg):
+    """Pick the profile for this device; never guess, never silently accept an unknown model."""
+    if profile_arg:
+        return profile_arg, cleanup_groups.load_profile(profile_arg)
+    key = (model_arg or observed_model).upper()
+    if key not in profiles:
+        supported = ", ".join(sorted(profiles)) or "(none)"
+        raise ValueError(
+            f"No profile covers model {key!r}. Supported models: {supported}. "
+            f"Add profiles/<model>-<firmware>.json from a read-only inventory (docs/02-access.md), "
+            f"or pass --profile <file> explicitly.")
+    path, data = profiles[key]
+    if firmware and firmware != data["firmware"]:
+        raise ValueError(
+            f"Profile {path.name} documents firmware {data['firmware']!r} but --firmware {firmware!r} "
+            f"was supplied. Read the exact version from About This TV; do not guess this value.")
+    return path, data
+
+
+def private_path(path):
+    path = Path(path).expanduser().resolve()
+    private = (ROOT / ".local").resolve()
+    if path == private or private not in path.parents:
+        raise ValueError("Private files must be inside this checkout's .local/ directory.")
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    return path
+
+
+def save_private(path, data):
+    path = private_path(path)
+    path.write_bytes(data)
+    path.chmod(0o600)
+
+
+def observed_model(client):
+    client.connect()
+    client.require_device()
+    rows = [line.split() for line in client.run(("devices",), check=True).stdout.splitlines()]
+    rows = [row for row in rows if row and row[0] == client.serial]
+    if len(rows) != 1 or len(rows[0]) < 3:
+        raise ValueError("Cannot identify the explicitly selected device from SDB.")
+    return rows[0][-1]
+
+
+def pull_command(remote):
+    if not remote.startswith("/") or "\0" in remote or "\n" in remote:
+        raise ValueError("Use an absolute, single-line TV file path.")
+    # The upstream command channel captures at most 1 MiB per stream.
+    # A compressed transfer is bounded before emitting any base64.
+    return f"""set -eu
+test -f {shlex.quote(remote)}
+test "$(stat -c %s {shlex.quote(remote)})" -le 33554432
+t=$(mktemp /run/untizen-pull.XXXXXX)
+trap 'rm -f "$t"' EXIT HUP INT TERM
+gzip -c {shlex.quote(remote)} > "$t"
+test "$(wc -c < "$t")" -le 760000 || {{ echo 'File too large; split a snapshot into smaller files first.' >&2; exit 1; }}
+sha256sum {shlex.quote(remote)} | cut -d ' ' -f 1
+base64 "$t"
+"""
+
+
+def decode_pull(stdout):
+    digest, encoded = stdout.split("\n", 1)
+    if not re.fullmatch(r"[0-9a-f]{64}", digest):
+        raise ValueError("Missing transfer digest.")
+    compressed = base64.b64decode("".join(encoded.split()), validate=True)
+    data = gzip.decompress(compressed)
+    if len(data) > 33554432 or hashlib.sha256(data).hexdigest() != digest:
+        raise ValueError("Transfer size or digest mismatch; file was not saved.")
+    return data
+
+
+def print_profiles(profiles):
+    if not profiles:
+        print("No profiles yet. Add profiles/<model>-<firmware>.json (docs/02-access.md).")
+        return
+    print(f"{'MODEL':<18} {'FIRMWARE':<28} {'RUNTIME':<8} GROUPS")
+    for key in sorted(profiles):
+        _, data = profiles[key]
+        cleanup = data.get("cleanup", {})
+        groups = cleanup.get("groups", [])
+        print(f"{data['model']:<18} {data['firmware']:<28} {data.get('runtime','?'):<8} {len(groups)}")
+
+
+def main():
+    os.umask(0o077)
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--host", help="The owner's TV IPv4 address; never auto-discovered")
+    parser.add_argument("--firmware", help="Operator-verified version from the TV's About screen")
+    parser.add_argument("--model", help="Override the SDB-reported model when selecting a profile")
+    parser.add_argument("--profile", type=Path, help="Use one explicit profile file instead of matching")
+    parser.add_argument("--sdb", help="Path to Samsung's separately installed SDB")
+    parser.add_argument("--callback-host", help="This computer's LAN IPv4 if route detection is wrong")
+    sub = parser.add_subparsers(dest="action", required=True)
+    sub.add_parser("profiles", help="List the per-device profiles this checkout supports; no TV needed")
+    sub.add_parser("doctor", help="Read SDB identity and archive-route capabilities; does not obtain root")
+    sub.add_parser("root-check", help="Temporarily obtain root and run id; no configuration changes")
+    run = sub.add_parser("exec", help="Execute one reviewed command or short script using temporary root")
+    source = run.add_mutually_exclusive_group(required=True)
+    source.add_argument("--command")
+    source.add_argument("--script", type=Path)
+    run.add_argument("--arg", action="append", default=[], help="Positional argument passed to --script")
+    pull = sub.add_parser("pull", help="Read and verify one bounded file into ignored .local/")
+    pull.add_argument("remote")
+    pull.add_argument("local", type=Path)
+    push = sub.add_parser("push", help="Upload one file to the SDK staging directory, not to system paths")
+    push.add_argument("local", type=Path)
+    push.add_argument("name", help="Simple staging filename")
+    args = parser.parse_args()
+
+    profiles = load_profiles()
+    if args.action == "profiles":
+        print_profiles(profiles)
+        return
+    if not args.host:
+        parser.error("--host is required for every action except 'profiles'.")
+    ipaddress.IPv4Address(args.host)
+    if args.callback_host:
+        ipaddress.IPv4Address(args.callback_host)
+    if args.sdb:
+        os.environ["SDB"] = str(Path(args.sdb).expanduser().resolve())
+    client = SdbClient(find_sdb(), args.host, timeout=15)
+    model = observed_model(client)
+    print("SDB model:", model)
+    if args.action == "doctor":
+        assessment = _check_target(client)
+        print("Archive-route runtime family:", assessment.runtime)
+        print(assessment.capabilities)
+        print(_capture(client, "uname -srmo; readlink -f /usr/share/dotnet.tizen/netcoreapp"))
+        print("Preflight only. Firmware must be read on the TV; root is not yet confirmed.")
+        return
+    profile_path, profile = resolve_profile(profiles, model, args.firmware, args.profile, args.model)
+    print(f"Profile: {profile_path.name} (model {profile['model']}, firmware {profile['firmware']}, "
+          f"runtime {profile.get('runtime','?')}, kernel {profile.get('kernel','?')})")
+    if args.action == "push":
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,100}", args.name):
+            raise ValueError("Use a simple staging filename without directory components.")
+        if not args.local.is_file():
+            raise ValueError("Upload source must be a file.")
+        _capture(client, f"mkdir -p {STAGE}")
+        remote = PurePosixPath(STAGE) / args.name
+        client.push(args.local.resolve(), remote)
+        digest = hashlib.sha256(args.local.read_bytes()).hexdigest()
+        actual = _capture(client, f"sha256sum {shlex.quote(str(remote))}").split()[0]
+        if digest != actual:
+            raise ValueError("Uploaded file digest mismatch.")
+        print(f"Verified staging file: {remote}. Remove it after deployment.")
+        return
+    if args.action == "root-check":
+        command = "id"
+    elif args.action == "pull":
+        private_path(args.local)
+        command = pull_command(args.remote)
+    elif args.script:
+        script = args.script.read_bytes()
+        if len(script) > 45000:
+            raise ValueError("Script too large for the bounded command channel; split into phases.")
+        encoded = base64.b64encode(script).decode()
+        command = (script_environment(profile)
+                   + f"printf '%s' {shlex.quote(encoded)} | base64 -d | /bin/sh -s -- "
+                   + shlex.join(args.arg))
+    else:
+        if args.arg:
+            raise ValueError("--arg requires --script.")
+        command = args.command
+    result = asyncio.run(probe(
+        args.host, model=model, callback_host=args.callback_host,
+        payloads=ROOT / ".local/build/payloads", commands=(command,), command_timeout=30,
+    ))
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
+    log = ROOT / ".local/sessions" / f"{stamp}.json"
+    save_private(log, (json.dumps(result, indent=2) + "\n").encode())
+    if result.get("uid") != 0 or result.get("euid") != 0:
+        raise ValueError("The callback did not prove UID/EUID 0.")
+    if not result.get("system_files_unchanged") or not result.get("staging_cleaned"):
+        raise ValueError("Root session cleanup checks failed; inspect the private session log.")
+    response = result["commands"][0]
+    if response["stderr"]:
+        print(response["stderr"], file=sys.stderr, end="")
+    if response["exit_code"] or response["timed_out"]:
+        raise RuntimeError(f"Command failed ({response['exit_code']}, timeout={response['timed_out']}). "
+                           f"Private log: {log.relative_to(ROOT)}")
+    if args.action == "pull":
+        save_private(args.local, decode_pull(response["stdout"]))
+        print("Verified file saved inside .local/.")
+    else:
+        print(response["stdout"], end="")
+    print("UID/EUID 0 verified; root staging cleaned; passwd and SDB key hashes unchanged.")
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        sys.exit(130)
+    except Exception as error:
+        print(f"Stopped: {error}", file=sys.stderr)
+        sys.exit(1)

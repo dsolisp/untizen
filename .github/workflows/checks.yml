@@ -1,0 +1,25 @@
+name: Offline checks
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "6.0.x"
+      - name: Python tests and recipe syntax
+        run: python3 -m unittest discover -s tests -v
+      - name: List supported profiles without a TV
+        run: python3 tools/tv.py profiles
+      - name: Build open-source access payloads
+        run: python3 tools/build.py payloads
+      - name: Test native catalog logic without Samsung references
+        run: dotnet run --project tests/CatalogTests.csproj -- launcher/assets/apps.json

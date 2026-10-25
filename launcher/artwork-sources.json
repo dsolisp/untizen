@@ -1,0 +1,216 @@
+{
+  "description": "Optional publisher artwork, downloaded locally. Logos are not included in this repository. URLs can expire; no affiliation is implied.",
+  "apps": [
+    {
+      "name": "Netflix",
+      "id": "org.tizen.netflix-app",
+      "asset": "app-icons/netflix.svg",
+      "source_path": "https://occ.a.nflxso.net/dnmt/api/v6/iL4oJVDYZ8KLSrJ6eG2OwtghbfQ/AAAAAVIENVPMEM3Kn4hVzJseX4N8xPjtBDIpwuFDucWksdxQZ8Ss6Xf8U_vt7ThYYfRmzq0x1CS3nOwTGyVrgADvwfB_tPiK_liS2RjvI40RJSzbKRk-o8b3nCxHfCCnBsyB2XBB9_vRoSmN.svg",
+      "source_kind": "Official vector logo from Netflix website",
+      "source_page": "https://www.netflix.com/",
+      "catalog": {
+        "Name": "Netflix",
+        "Id": "org.tizen.netflix-app",
+        "Asset": "app-icons/netflix.svg",
+        "Description": "Movies & series",
+        "Fit": "contain",
+        "Background": "#FFFFFF",
+        "Width": 370,
+        "Height": 100
+      }
+    },
+    {
+      "name": "YouTube",
+      "id": "com.samsung.tv.cobalt-yt",
+      "asset": "app-icons/youtube.jpg",
+      "source_path": "https://www.gstatic.com/marketing-cms/assets/images/ea/a0/dce178134c00bef44247a87803cb/yt-external-thumbnail-logo-01.jpg",
+      "source_kind": "Official YouTube website artwork",
+      "source_page": "https://brand.youtube/",
+      "catalog": {
+        "Name": "YouTube",
+        "Id": "com.samsung.tv.cobalt-yt",
+        "Asset": "app-icons/youtube.jpg",
+        "Description": "Videos",
+        "Fit": "cover",
+        "Background": "#FFFFFF",
+        "Width": 1920,
+        "Height": 1080
+      }
+    },
+    {
+      "name": "Prime Video",
+      "id": "org.tizen.primevideo",
+      "asset": "app-icons/prime-video.svg",
+      "source_path": "https://upload.wikimedia.org/wikipedia/commons/9/90/Prime_Video_logo_%282024%29.svg",
+      "source_kind": "Amazon vector wordmark mirrored by Wikimedia Commons; attributed there to Amazon.com, Inc.",
+      "source_page": "https://commons.wikimedia.org/wiki/File:Prime_Video_logo_(2024).svg",
+      "publisher": "Amazon.com, Inc.",
+      "extraction": "Original path geometry retained; fill changed from brand blue to white, explicit SVG dimensions added.",
+      "catalog": {
+        "Name": "Prime Video",
+        "Id": "org.tizen.primevideo",
+        "Asset": "app-icons/prime-video.svg",
+        "Description": "Movies & series",
+        "Fit": "contain",
+        "Background": "#0779FF",
+        "Width": 846,
+        "Height": 266
+      }
+    },
+    {
+      "name": "HBO Max",
+      "id": "5b8c3eb16b.BeamCTVDev",
+      "asset": "app-icons/hbo-max.png",
+      "source_path": "https://is1-ssl.mzstatic.com/image/thumb/Purple211/v4/88/b3/cb/88b3cb65-9dd7-8801-bb47-affd72805a82/AppIcon-0-0-1x_U007epad-0-1-85-220.png/1024x1024bb.png",
+      "source_kind": "Official publisher App Store artwork at 1024 pixels",
+      "source_page": "https://apps.apple.com/us/app/hbo-max-stream-movies-tv/id1666653815?uo=4",
+      "publisher": "WarnerMedia Global Digital Services, LLC",
+      "catalog": {
+        "Name": "HBO Max",
+        "Id": "5b8c3eb16b.BeamCTVDev",
+        "Asset": "app-icons/hbo-max.png",
+        "Description": "Movies & series",
+        "Fit": "cover",
+        "Background": "#111318",
+        "Width": 1024,
+        "Height": 1024
+      }
+    },
+    {
+      "name": "Disney+",
+      "id": "MCmYXNxgcu.DisneyPlus",
+      "asset": "app-icons/disney-plus.jpg",
+      "source_path": "https://lumiere-a.akamaihd.net/v1/images/disney_logo_march_2024_050fef2e.png",
+      "source_kind": "Official high-resolution brand artwork",
+      "source_page": "https://press.disneyplus.com/about/logos",
+      "catalog": {
+        "Name": "Disney+",
+        "Id": "MCmYXNxgcu.DisneyPlus",
+        "Asset": "app-icons/disney-plus.jpg",
+        "Description": "Movies & series",
+        "Fit": "cover",
+        "Background": "#023D4A",
+        "Width": 1920,
+        "Height": 1080
+      }
+    },
+    {
+      "name": "Hulu",
+      "id": "LBUAQX1exg.Hulu",
+      "asset": "app-icons/hulu.svg",
+      "source_path": "https://www.thisishulu.com/app/uploads/2023/11/Hulu-Logos.zip",
+      "source_kind": "Official Hulu vector logo from brand kit",
+      "source_page": "https://www.thisishulu.com/",
+      "archive_member": "Hulu-Logos/Digital/1-Green-Logo-Primary/hulu-Green-digital.svg",
+      "catalog": {
+        "Name": "Hulu",
+        "Id": "LBUAQX1exg.Hulu",
+        "Asset": "app-icons/hulu.svg",
+        "Description": "Movies & series",
+        "Fit": "contain",
+        "Background": "#000000",
+        "Width": 320,
+        "Height": 170
+      }
+    },
+    {
+      "name": "Spotify",
+      "id": "rJeHak5zRg.Spotify",
+      "asset": "app-icons/spotify.svg",
+      "source_path": "https://www.spotify.com/us/premium/",
+      "source_kind": "Official inline SVG wordmark from Spotify website",
+      "source_page": "https://www.spotify.com/us/premium/",
+      "extraction": "Original inline SVG with viewBox 0 0 823.46 225.25; paths unchanged.",
+      "catalog": {
+        "Name": "Spotify",
+        "Id": "rJeHak5zRg.Spotify",
+        "Asset": "app-icons/spotify.svg",
+        "Description": "Music & podcasts",
+        "Fit": "contain",
+        "Background": "#1ED760",
+        "Width": 824,
+        "Height": 226
+      }
+    },
+    {
+      "name": "Apple TV",
+      "id": "com.samsung.tv.aria-video",
+      "asset": "app-icons/apple-tv.png",
+      "source_path": "https://is1-ssl.mzstatic.com/image/thumb/Purple211/v4/a2/74/61/a274610a-1537-0429-df1b-afacfad5a478/tvCalistoga-0-0-1x_U007epad-0-1-0-sRGB-85-220.png/1024x1024bb.png",
+      "source_kind": "Official publisher App Store artwork at 1024 pixels",
+      "source_page": "https://apps.apple.com/us/app/apple-tv/id1174078549?uo=4",
+      "catalog": {
+        "Name": "Apple TV",
+        "Id": "com.samsung.tv.aria-video",
+        "Asset": "app-icons/apple-tv.png",
+        "Description": "Movies & series",
+        "Fit": "cover",
+        "Background": "#292929",
+        "Width": 1024,
+        "Height": 1024
+      }
+    },
+    {
+      "name": "Tubi",
+      "id": "3KA0pm7a7V.TubiTV",
+      "asset": "app-icons/tubi.png",
+      "source_path": "https://is1-ssl.mzstatic.com/image/thumb/Purple211/v4/3b/7a/4e/3b7a4ed3-8073-d445-8793-da4307b6d7d5/AppIcon-0-0-1x_U007epad-0-1-sRGB-85-220.png/1024x1024bb.png",
+      "source_kind": "Official publisher App Store artwork at 1024 pixels",
+      "source_page": "https://apps.apple.com/us/app/tubi-movies-live-tv/id886445756?uo=4",
+      "catalog": {
+        "Name": "Tubi",
+        "Id": "3KA0pm7a7V.TubiTV",
+        "Asset": "app-icons/tubi.png",
+        "Description": "Free movies & TV",
+        "Fit": "cover",
+        "Background": "#6C21C9",
+        "Width": 1024,
+        "Height": 1024
+      }
+    },
+    {
+      "name": "Amazon Luna",
+      "id": "CmeyUlnhYY.LunaWebApp",
+      "asset": "app-icons/amazon-luna.jpg",
+      "source_path": "https://images.ctfassets.net/5lpapfxq15sk/25v3lZW4OVK2EII8rSTTSn/c5854b8ad5cbb599a2219b11a608c0a1/tile-luna.jpg",
+      "source_kind": "Official high-resolution brand artwork",
+      "source_page": "https://games.amazon.com/en-us/",
+      "catalog": {
+        "Name": "Amazon Luna",
+        "Id": "CmeyUlnhYY.LunaWebApp",
+        "Asset": "app-icons/amazon-luna.jpg",
+        "Description": "Cloud gaming",
+        "Fit": "cover",
+        "Background": "#9146FF",
+        "Width": 740,
+        "Height": 346
+      }
+    },
+    {
+      "name": "Xbox",
+      "id": "GHI3a0zMSx.XboxGamePass",
+      "asset": "app-icons/xbox-glass.png",
+      "source_path": "https://assets.xboxservices.com/assets/5a/37/5a379295-2f29-4990-bdfe-50cc3b2138a3.png?n=5269945_BoM_Wallpaper-Wide_Xbox-Original_2560x1440.png",
+      "source_kind": "Official Microsoft 2026 translucent green Xbox logo artwork",
+      "source_page": "https://www.xbox.com/en-US/wallpapers",
+      "extraction": "Unmodified 2560 x 1440 Microsoft wallpaper; native ImageView viewport frames the logo. This is raster artwork, not a vector.",
+      "publisher": "Microsoft",
+      "catalog": {
+        "Name": "Xbox",
+        "Id": "GHI3a0zMSx.XboxGamePass",
+        "Asset": "app-icons/xbox-glass.png",
+        "Description": "Cloud gaming",
+        "Fit": "cover",
+        "Background": "#000000",
+        "Width": 2560,
+        "Height": 1440,
+        "Crop": [
+          0.34,
+          0.365,
+          0.32,
+          0.32
+        ]
+      }
+    }
+  ]
+}

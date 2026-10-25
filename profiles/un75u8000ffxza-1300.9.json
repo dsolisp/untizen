@@ -1,0 +1,134 @@
+{
+  "profile_version": 1,
+  "model": "UN75U8000FFXZA",
+  "firmware": "T-KSU2EFAKUC-0090-1300.9",
+  "os": "Tizen 9.0",
+  "kernel": "Linux 5.4.261 ARMv7",
+  "runtime": "6.0.9",
+  "registry": "/opt/dbspace/.pkgmgr_parser.db",
+  "container": "com.samsung.tv.bixby-promotion",
+  "settings_container": "com.samsung.tv.quicklaunch",
+  "cleanup": {
+    "groups": [
+      "advertising",
+      "tv-plus",
+      "voice",
+      "context",
+      "smart-extras",
+      "light-shell"
+    ],
+    "add": {
+      "advertising": [
+        "yL49PNFmjW.service"
+      ]
+    },
+    "remove": {},
+    "evidence": "Every ID in these groups was read from this TV's own registry inventory (docs/01-inventory.md). yL49PNFmjW.* is a firmware-specific promotion pair, so it is added here instead of in the shared catalog."
+  },
+  "stop_markers": [
+    {
+      "unit": "pisa-service.service",
+      "marker": "pisa-service",
+      "group": "advertising"
+    },
+    {
+      "unit": "canalysis-service.service",
+      "marker": "canalysis-daemon",
+      "group": "advertising"
+    },
+    {
+      "unit": "com.samsung.tv.bixby-prov.service",
+      "marker": "com.samsung.tv.bixby-prov",
+      "group": "voice"
+    },
+    {
+      "unit": "com.samsung.tv.ondevice-voice.service",
+      "marker": "com.samsung.tv.ondevice-voice",
+      "group": "voice"
+    },
+    {
+      "unit": "org.tizen.voice-app.service",
+      "marker": "org.tizen.voice-app",
+      "group": "voice"
+    },
+    {
+      "unit": "org.tizen.voice-client.service",
+      "marker": "org.tizen.voice-client",
+      "group": "voice"
+    },
+    {
+      "unit": "com.samsung.tv.context-aware-agent.service",
+      "marker": "com.samsung.tv.context-aware-agent",
+      "group": "context"
+    },
+    {
+      "unit": "com.samsung.tv.context-aware-service.service",
+      "marker": "com.samsung.tv.context-aware-service",
+      "group": "context"
+    },
+    {
+      "unit": "com.samsung.tv.AICompanionAgent.service",
+      "marker": "com.samsung.tv.AICompanionAgent",
+      "group": "context"
+    },
+    {
+      "unit": "com.samsung.tv.ghdaemon.service",
+      "marker": "com.samsung.tv.ghdaemon",
+      "group": "smart-extras"
+    },
+    {
+      "unit": "samsunghealth-service-tv.service",
+      "marker": "samsunghealth-service-tv",
+      "group": "smart-extras"
+    },
+    {
+      "unit": "slive-provider-daemon.service",
+      "marker": "slive-provider-daemon",
+      "group": "tv-plus"
+    }
+  ],
+  "runtime_only_masks": [
+    "ipa.service",
+    "contents-recognition-service.service",
+    "org.tizen.tv.sp-kpi.service",
+    "data-service.service"
+  ],
+  "preferences": [
+    {
+      "key": "db/was/preload_by_country",
+      "type": "string",
+      "value": "false"
+    },
+    {
+      "key": "db/menu/autorun_tv_plus",
+      "type": "bool",
+      "value": "0"
+    },
+    {
+      "key": "db/menu/voice/voice_activated",
+      "type": "bool",
+      "value": "0"
+    },
+    {
+      "key": "db/menu/voice/wakeupless_status",
+      "type": "int",
+      "value": "0"
+    },
+    {
+      "key": "db/si_service/voice_recog_enable",
+      "type": "bool",
+      "value": "0"
+    },
+    {
+      "key": "db/multi-assistant/prelaunch_mode",
+      "type": "bool",
+      "value": "0"
+    }
+  ],
+  "was_cache": {
+    "table": "WASConfigTable",
+    "row": "RESERVED_18",
+    "json_path": "$.rsp.preloadByCountry",
+    "after": "false"
+  }
+}

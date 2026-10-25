@@ -1,0 +1,27 @@
+{
+  "profile_version": 1,
+  "model": "QN55QN85CAPXPA",
+  "firmware": "T-PTMCUABC-0090-2220.4",
+  "os": "Tizen (estimated 7.5-8.0)",
+  "kernel": "Linux 5.4.77 armv7l",
+  "runtime": "6.0.9",
+  "registry": "/opt/dbspace/.pkgmgr_parser.db",
+  "build_id": "e2371440",
+  "container": "com.samsung.tv.bixby-promotion",
+  "settings_container": "com.samsung.tv.quicklaunch",
+  "cleanup": {
+    "groups": [
+      "advertising",
+      "tv-plus",
+      "context",
+      "smart-extras",
+      "gaming-hub",
+      "hotel-b2b"
+    ],
+    "add": {},
+    "remove": {},
+    "evidence": "556 app IDs read from this TV's registry on 2025-10-25. voice is deliberately NOT selected: the owner keeps Bixby. light-shell is deferred until the launcher and the settings bridge are validated. hotel-b2b and gaming-hub only exist on this panel line, which is why they are shared-catalog groups that this profile opts into and the U8000F profile does not.",
+    "applied": "60 of these IDs were disabled on the owner's TV in staged groups with a full .backup rollback in place."
+  },
+  "notes": "2023 Neo QLED 4K premium (QN85C). Different from tested U8000F (2025 entry-level). Firmware code T-PTMCUABC vs T-KSU2EFAKUC indicates different product line. Runtime compatible but packages/app IDs likely differ."
+}
