@@ -28,7 +28,20 @@ prioritized HDMI, streaming shortcuts and native Bluetooth. Voice assistants,
 context suggestions and several background smart features were unwanted.
 Another owner may need them.
 
-After [access setup](02-access.md), collect a private inventory:
+After [access setup](02-access.md), collect a private inventory. Prefer the
+read-only helper, which works even when this checkout has no profile yet:
+
+```sh
+tv inventory
+```
+
+That writes `.local/inventory/<model>-<firmware>/` (`draft-profile.json`,
+`app-ids.txt`, a shipped-app overlay, Probe HDMI integers if Probe is already
+on the TV, and a `note.md`). It does not write `profiles/`. Promote a
+one-session note to [docs/devices/](devices/README.md) until the TV is
+exercised end to end; only then add a profile.
+
+The same dump can still be collected by hand:
 
 ```sh
 tv exec --command 'uname -srmo; readlink -f /usr/share/dotnet.tizen/netcoreapp'
@@ -39,7 +52,8 @@ tv exec --script recipes/status.sh
 ```
 
 `tv` is the shell helper defined in the access guide. Raw command results
-are automatically stored in ignored `.local/sessions/`.
+are automatically stored in ignored `.local/sessions/`. Hand-run `exec`
+commands still require a matching profile.
 
 Record current Home/startup preferences, then use the compiled Probe described
 in the launcher guide to read the main-operation Home handler and actual input

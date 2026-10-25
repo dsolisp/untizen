@@ -18,8 +18,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "vendor"))
 sys.path.insert(0, str(ROOT / "tools"))
 import cleanup_groups
+import drift
+import inventory
 from samsung_tv_root.archive_root import probe, _check_target, _capture
-from samsung_tv_root.sdb import SdbClient, find_sdb
+from samsung_tv_root.sdb import SdbClient, find_sdb, SDB_PORT
 
 STAGE = "/home/owner/share/tmp/sdk_tools/untizen"
 BACKUP_DIR = "/opt/usr/share/untizen-backups"
@@ -38,35 +40,49 @@ def script_environment(profile):
     return f"{assignments}; export {' '.join(values)}; "
 
 
-def load_profiles():
-    """Every per-device profile keyed by upper-cased model code."""
+def load_profiles(directory=None):
+    """Every per-device profile keyed by (MODEL, firmware). Two firmwares of one panel may coexist."""
     profiles = {}
-    for path in sorted((ROOT / "profiles").glob("*.json")):
+    root = Path(directory) if directory else ROOT / "profiles"
+    for path in sorted(root.glob("*.json")):
         data = cleanup_groups.load_profile(path)
-        key = data["model"].upper()
+        key = (data["model"].upper(), data["firmware"])
         if key in profiles:
-            raise ValueError(f"{path.name} and {profiles[key][0].name} both claim model {key}; keep one profile per model.")
+            raise ValueError(
+                f"{path.name} and {profiles[key][0].name} both claim "
+                f"{key[0]} firmware {key[1]}.")
         profiles[key] = (path, data)
     return profiles
 
 
 def resolve_profile(profiles, observed_model, firmware, profile_arg, model_arg):
-    """Pick the profile for this device; never guess, never silently accept an unknown model."""
-    if profile_arg:
-        return profile_arg, cleanup_groups.load_profile(profile_arg)
-    key = (model_arg or observed_model).upper()
-    if key not in profiles:
-        supported = ", ".join(sorted(profiles)) or "(none)"
+    """Pick the profile for this device; never guess, never silently accept an unknown pair."""
+    if not firmware:
         raise ValueError(
-            f"No profile covers model {key!r}. Supported models: {supported}. "
+            "Declare --firmware from About This TV; the helper does not read it from the set.")
+    if profile_arg:
+        data = cleanup_groups.load_profile(profile_arg)
+        if firmware != data["firmware"]:
+            raise ValueError(
+                f"Profile {profile_arg.name} documents firmware {data['firmware']!r} but "
+                f"--firmware {firmware!r} was supplied. Read the exact version from About This TV; "
+                f"do not guess this value.")
+        return profile_arg, data
+    model = (model_arg or observed_model or "").upper()
+    matches = [(key, value) for key, value in profiles.items() if key[0] == model]
+    supported = ", ".join(f"{key[0]}/{key[1]}" for key in sorted(profiles)) or "(none)"
+    if not matches:
+        raise ValueError(
+            f"No profile covers model {model!r}. Supported models: {supported}. "
             f"Add profiles/<model>-<firmware>.json from a read-only inventory (docs/02-access.md), "
             f"or pass --profile <file> explicitly.")
-    path, data = profiles[key]
-    if firmware and firmware != data["firmware"]:
+    exact = [value for key, value in matches if key[1] == firmware]
+    if not exact:
+        variants = ", ".join(key[1] for key, _ in matches)
         raise ValueError(
-            f"Profile {path.name} documents firmware {data['firmware']!r} but --firmware {firmware!r} "
-            f"was supplied. Read the exact version from About This TV; do not guess this value.")
-    return path, data
+            f"Model {model} has profiles for {variants}, not firmware {firmware!r}. "
+            f"Read the exact version from About This TV; do not guess this value.")
+    return exact[0]
 
 
 def private_path(path):
@@ -122,6 +138,120 @@ def decode_pull(stdout):
     return data
 
 
+ROOT_ACTIONS = {"root-check", "exec", "pull", "inventory"}
+
+
+def require_callback_host(host, callback_host):
+    """Loopback SDB (a relay) cannot be the TV's root callback address."""
+    if ipaddress.IPv4Address(host).is_loopback and not callback_host:
+        raise ValueError(
+            "--host is loopback, so SDB is probably going through tools/relay.py. "
+            "Pass --callback-host <this-computer-LAN-IPv4> so the TV can call back; "
+            "127.0.0.1 is unreachable from the panel.")
+
+
+def check_port_closed(host, port, timeout=3.0):
+    """Return ('closed'|'open'|'failed', message). Does not use SDB."""
+    import socket
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            pass
+    except ConnectionRefusedError:
+        return "closed", f"{host}:{port} is closed: the TV refused the connection."
+    except (TimeoutError, socket.timeout):
+        return "closed", (
+            f"{host}:{port} did not answer in {timeout:.0f}s: treated as closed, "
+            "unless the TV is off or not at this address.")
+    except OSError as error:
+        return "failed", f"could not check {host}:{port} ({error}). Is the TV on this LAN?"
+    return "open", (
+        f"{host}:{port} is still open: Developer Mode / SDB is reachable. "
+        "Turn Developer Mode off on the TV, reboot, and check again.")
+
+
+def run_inventory(args, model, profile, profile_path):
+    """Read-only root dump; write a draft under .local/inventory/ only."""
+    script = (ROOT / "recipes/inventory.sh").read_bytes()
+    encoded = base64.b64encode(script).decode()
+    fallback = {
+        "container": inventory.DEFAULT_CONTAINER,
+        "settings_container": inventory.DEFAULT_SETTINGS_CONTAINER,
+        "registry": inventory.DEFAULT_REGISTRY,
+    }
+    command = (
+        script_environment(profile or fallback)
+        + f"printf '%s' {shlex.quote(encoded)} | base64 -d | /bin/sh -s"
+    )
+    result = asyncio.run(probe(
+        args.host, model=model, callback_host=args.callback_host,
+        payloads=ROOT / ".local/build/payloads", commands=(command,), command_timeout=30,
+    ))
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
+    save_private(ROOT / ".local/sessions" / f"{stamp}.json",
+                 (json.dumps(result, indent=2) + "\n").encode())
+    if result.get("uid") != 0 or result.get("euid") != 0:
+        raise ValueError("The callback did not prove UID/EUID 0.")
+    if not result.get("system_files_unchanged") or not result.get("staging_cleaned"):
+        raise ValueError("Root session cleanup checks failed; inspect the private session log.")
+    response = result["commands"][0]
+    if response["stderr"]:
+        print(response["stderr"], file=sys.stderr, end="")
+    if response["exit_code"] or response["timed_out"]:
+        raise RuntimeError(
+            f"Inventory command failed ({response['exit_code']}, timeout={response['timed_out']}).")
+    catalog = cleanup_groups.load_catalog()
+    shipped = json.loads((ROOT / "launcher/assets/apps.json").read_text())
+    match_name = profile_path.name if profile_path else None
+    record = inventory.compile_record(
+        model, args.firmware, response["stdout"], catalog, shipped, match_name)
+    if args.name:
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,80}", args.name):
+            raise ValueError("Use a simple --name without directory components.")
+        directory = ROOT / ".local/inventory" / args.name
+    else:
+        directory = inventory.inventory_directory(ROOT / ".local", model, args.firmware)
+    directory.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    written = inventory.write_inventory(directory, record)
+    if not str(written.resolve()).startswith(str((ROOT / ".local").resolve())):
+        raise ValueError("Inventory must stay under .local/.")
+    print(f"Observed {len(record['app_ids'])} app IDs; "
+          f"{len(record['suggested'])} catalog groups matched.")
+    print(f"Draft written to {written.relative_to(ROOT)} "
+          "(app-ids.txt, draft-profile.json, apps-overlay.json, sources.json, note.md).")
+    print("This did not write profiles/ and did not change registry flags or Home.")
+    if match_name:
+        print(f"A profile already covers this TV: {match_name}. Review the draft, then continue.")
+    else:
+        print("No profile matches. Stop here. Promote the note under docs/devices/ "
+              "only if the owner asked to change this repo; do not mutate the TV.")
+    print("UID/EUID 0 verified; root staging cleaned; passwd and SDB key hashes unchanged.")
+
+
+def matched_profile(profiles, model, firmware, profile_arg, model_arg):
+    """Resolve if possible; inventory may continue when nothing matches."""
+    try:
+        path, data = resolve_profile(profiles, model, firmware, profile_arg, model_arg)
+        return path, data, None
+    except ValueError as error:
+        return None, None, str(error)
+
+
+def run_drift(args):
+    plan = drift.load_plan(args.plan)
+    rows = drift.read_rows(args.snapshot)
+    result = drift.compare(rows, plan)
+    print(drift.report(result, args.plan), end="")
+    if args.fix:
+        apply_sh = Path(args.plan) / "apply.sh"
+        print("Re-apply the original plan; the first recovery record is not rewritten.")
+        if apply_sh.is_file():
+            print(f"tv exec --script {apply_sh}")
+        else:
+            print(f"Missing {apply_sh}; keep the generated apply.sh next to before.json.")
+    if result["drifted"] or result["missing"]:
+        raise SystemExit(1)
+
+
 def print_profiles(profiles):
     if not profiles:
         print("No profiles yet. Add profiles/<model>-<firmware>.json (docs/02-access.md).")
@@ -138,14 +268,37 @@ def main():
     os.umask(0o077)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--host", help="The owner's TV IPv4 address; never auto-discovered")
-    parser.add_argument("--firmware", help="Operator-verified version from the TV's About screen")
+    parser.add_argument(
+        "--firmware",
+        help="Required except for profiles, port-closed and drift. Operator-verified About This TV value",
+    )
     parser.add_argument("--model", help="Override the SDB-reported model when selecting a profile")
     parser.add_argument("--profile", type=Path, help="Use one explicit profile file instead of matching")
     parser.add_argument("--sdb", help="Path to Samsung's separately installed SDB")
     parser.add_argument("--callback-host", help="This computer's LAN IPv4 if route detection is wrong")
     sub = parser.add_subparsers(dest="action", required=True)
     sub.add_parser("profiles", help="List the per-device profiles this checkout supports; no TV needed")
+    closed = sub.add_parser(
+        "port-closed",
+        help="Check that SDB refuses connections after Developer Mode is off; no firmware needed",
+    )
+    closed.add_argument("--port", type=int, default=SDB_PORT, help="SDB port to probe (default 26101)")
+    drift_cmd = sub.add_parser(
+        "drift",
+        help="Compare a snapshot to a plan's before.json; no TV, no firmware",
+    )
+    drift_cmd.add_argument("--snapshot", type=Path, required=True)
+    drift_cmd.add_argument("--plan", type=Path, required=True)
+    drift_cmd.add_argument(
+        "--fix", action="store_true",
+        help="Print how to re-apply the original plan; does not rewrite recovery",
+    )
     sub.add_parser("doctor", help="Read SDB identity and archive-route capabilities; does not obtain root")
+    inv = sub.add_parser(
+        "inventory",
+        help="Read-only dump: draft profile under .local/inventory/; does not write profiles/",
+    )
+    inv.add_argument("--name", help="Override the inventory directory name under .local/inventory/")
     sub.add_parser("root-check", help="Temporarily obtain root and run id; no configuration changes")
     run = sub.add_parser("exec", help="Execute one reviewed command or short script using temporary root")
     source = run.add_mutually_exclusive_group(required=True)
@@ -164,13 +317,31 @@ def main():
     if args.action == "profiles":
         print_profiles(profiles)
         return
+    if args.action == "drift":
+        run_drift(args)
+        return
     if not args.host:
-        parser.error("--host is required for every action except 'profiles'.")
+        parser.error("--host is required for every action except 'profiles' and 'drift'.")
     ipaddress.IPv4Address(args.host)
+    if args.action == "port-closed":
+        if not (1 <= args.port <= 65535):
+            parser.error("--port must be in 1..65535")
+        status, message = check_port_closed(args.host, args.port)
+        if status == "closed":
+            print(message)
+            return
+        print(message, file=sys.stderr)
+        sys.exit(1 if status == "open" else 2)
+    if not args.firmware:
+        parser.error(
+            "--firmware is required for every action except 'profiles', 'port-closed' and 'drift'. "
+            "Read it on About This TV; do not guess.")
     if args.callback_host:
         ipaddress.IPv4Address(args.callback_host)
     if args.sdb:
         os.environ["SDB"] = str(Path(args.sdb).expanduser().resolve())
+    if args.action in ROOT_ACTIONS:
+        require_callback_host(args.host, args.callback_host)
     client = SdbClient(find_sdb(), args.host, timeout=15)
     model = observed_model(client)
     print("SDB model:", model)
@@ -179,7 +350,22 @@ def main():
         print("Archive-route runtime family:", assessment.runtime)
         print(assessment.capabilities)
         print(_capture(client, "uname -srmo; readlink -f /usr/share/dotnet.tizen/netcoreapp"))
-        print("Preflight only. Firmware must be read on the TV; root is not yet confirmed.")
+        profile_path, profile = resolve_profile(profiles, model, args.firmware, args.profile, args.model)
+        print(f"Profile: {profile_path.name} (model {profile['model']}, firmware {profile['firmware']}, "
+              f"runtime {profile.get('runtime','?')}, kernel {profile.get('kernel','?')})")
+        print("Preflight only. Firmware was operator-declared; root is not yet confirmed.")
+        return
+    if args.action == "inventory":
+        assessment = _check_target(client)
+        print("Archive-route runtime family:", assessment.runtime)
+        profile_path, profile, mismatch = matched_profile(
+            profiles, model, args.firmware, args.profile, args.model)
+        if profile_path:
+            print(f"Profile: {profile_path.name} (model {profile['model']}, firmware {profile['firmware']})")
+        else:
+            print(f"No end-to-end profile: {mismatch}")
+            print("Continuing with a read-only inventory. Nothing will be written under profiles/.")
+        run_inventory(args, model, profile, profile_path)
         return
     profile_path, profile = resolve_profile(profiles, model, args.firmware, args.profile, args.model)
     print(f"Profile: {profile_path.name} (model {profile['model']}, firmware {profile['firmware']}, "

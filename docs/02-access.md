@@ -45,10 +45,30 @@ tv doctor
 tv root-check
 ```
 
-`doctor` checks the SDB foothold, runtime, file capabilities and tar support.
-It does not obtain root or establish compatibility for every private API.
+`--firmware` is required for `doctor`, `inventory`, `root-check`, `exec`,
+`pull` and `push`. `profiles`, `port-closed` and `drift` do not need it.
+`drift` also does not need `--host`.
+
+`doctor` checks the SDB foothold, runtime, file capabilities and tar support,
+then resolves the profile for the SDB-reported model and the firmware you
+declared. An unknown model or a firmware mismatch stops after that preflight
+— the observations are printed, then the helper exits. It does not obtain
+root or establish compatibility for every private API.
+
+`inventory` is the read-only path for a TV this checkout may not cover yet:
+the same preflight, then one temporary-root dump via
+[recipes/inventory.sh](../recipes/inventory.sh). The draft lands under
+`.local/inventory/` and never under `profiles/`. After that, stop unless a
+profile already matches.
+
 `root-check` builds on that route, executes `id`, and requires an authenticated
 UID/EUID 0 callback plus successful staging/system-file cleanup.
+
+If the agent's sandbox cannot reach the TV, run
+[tools/relay.py](../tools/relay.py) in an ordinary terminal
+([tools/relay.md](../tools/relay.md)) and point `--host` at `127.0.0.1`.
+Root sessions then need `--callback-host` set to this computer's LAN IPv4.
+When you finish, turn Developer Mode off and run `tv port-closed`.
 
 On this retail firmware, `sdb shell` returning `closed` is expected. The
 upstream tool uses the package-installer foothold and archive launcher instead.

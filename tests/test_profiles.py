@@ -1,4 +1,5 @@
 import io
+import subprocess
 import sys
 import unittest
 from contextlib import redirect_stdout
@@ -19,10 +20,12 @@ class ProfileSchemaTests(unittest.TestCase):
     def test_every_profile_carries_the_fields_recipes_and_plans_need(self):
         for key, (path, profile) in sorted(self.profiles.items()):
             with self.subTest(path.name):
-                self.assertEqual(key, profile["model"].upper())
+                self.assertEqual(key, (profile["model"].upper(), profile["firmware"]))
                 self.assertEqual(profile["profile_version"], 1)
                 for field in ("firmware", "kernel", "runtime", "registry", "container"):
                     self.assertTrue(profile.get(field), f"{path.name} is missing {field}")
+                self.assertIsInstance(profile.get("stop_markers"), list,
+                                      f"{path.name} must list stop_markers (empty means do not invent)")
                 self.assertTrue(profile["registry"].startswith("/"), f"{path.name}: registry must be absolute")
                 self.assertRegex(profile["container"], r"^[A-Za-z0-9_.-]+$")
                 self.assertRegex(profile["model"], r"^[A-Z0-9]+$")
@@ -67,10 +70,18 @@ class ProfileResolutionTests(unittest.TestCase):
 
     def test_unknown_model_is_guided_instead_of_silent(self):
         with self.assertRaises(ValueError) as caught:
-            tv.resolve_profile(self.profiles, "UN99ZZ9999XX", None, None, None)
+            tv.resolve_profile(self.profiles, "UN99ZZ9999XX", "T-FAKE-0000.0", None, None)
         message = str(caught.exception)
         self.assertIn("Supported models", message)
         self.assertIn("profiles/", message)
+
+    def test_firmware_is_required_even_when_the_model_is_known(self):
+        with self.assertRaises(ValueError) as caught:
+            tv.resolve_profile(self.profiles, self.profile["model"], None, None, None)
+        self.assertIn("--firmware", str(caught.exception))
+        with self.assertRaises(ValueError) as caught:
+            tv.resolve_profile(self.profiles, "IGNORED", None, self.path, None)
+        self.assertIn("--firmware", str(caught.exception))
 
     def test_declared_firmware_must_match_the_profile(self):
         with self.assertRaises(ValueError):
@@ -78,9 +89,15 @@ class ProfileResolutionTests(unittest.TestCase):
         _, resolved = tv.resolve_profile(self.profiles, self.profile["model"], self.profile["firmware"], None, None)
         self.assertEqual(resolved["model"], self.profile["model"])
 
+    def test_explicit_profile_still_checks_declared_firmware(self):
+        with self.assertRaises(ValueError) as caught:
+            tv.resolve_profile(self.profiles, "IGNORED", "0000.0", self.path, None)
+        self.assertIn("--firmware", str(caught.exception))
+
     def test_explicit_profile_and_model_arguments_win_over_observation(self):
-        self.assertEqual(tv.resolve_profile(self.profiles, "IGNORED", None, self.path, None)[0], self.path)
-        _, resolved = tv.resolve_profile(self.profiles, None, None, None, self.profile["model"].lower())
+        firmware = self.profile["firmware"]
+        self.assertEqual(tv.resolve_profile(self.profiles, "IGNORED", firmware, self.path, None)[0], self.path)
+        _, resolved = tv.resolve_profile(self.profiles, None, firmware, None, self.profile["model"].lower())
         self.assertEqual(resolved["model"], self.profile["model"])
 
     def test_script_environment_exports_every_recipe_variable(self):
@@ -98,7 +115,52 @@ class ProfileResolutionTests(unittest.TestCase):
         for key, (_, profile) in self.profiles.items():
             self.assertIn(profile["model"], listing)
             self.assertIn(profile["firmware"], listing)
-            self.assertGreaterEqual(len(key), 10)
+            self.assertGreaterEqual(len(key[0]), 10)
+
+    def test_one_session_notes_do_not_reuse_an_end_to_end_stem(self):
+        notes = [path for path in (ROOT / "docs/devices").glob("*.md")
+                 if path.name != "README.md"]
+        stems = {path.stem for path in (ROOT / "profiles").glob("*.json")}
+        for note in notes:
+            self.assertNotIn(note.stem, stems, f"{note.name} duplicates a profile")
+        self.assertTrue((ROOT / "docs/devices/README.md").is_file())
+
+
+class ProfileCliTests(unittest.TestCase):
+    def test_profiles_needs_no_host_or_firmware(self):
+        result = subprocess.run(
+            [sys.executable, str(ROOT / "tools/tv.py"), "profiles"],
+            check=False, capture_output=True, text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("MODEL", result.stdout)
+
+    def test_tv_actions_refuse_to_start_without_declared_firmware(self):
+        result = subprocess.run(
+            [sys.executable, str(ROOT / "tools/tv.py"), "--host", "192.0.2.50", "doctor"],
+            check=False, capture_output=True, text=True,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("--firmware", result.stderr)
+
+    def test_port_closed_does_not_need_firmware(self):
+        result = subprocess.run(
+            [sys.executable, str(ROOT / "tools/tv.py"), "--host", "192.0.2.50",
+             "port-closed", "--port", "1"],
+            check=False, capture_output=True, text=True,
+        )
+        self.assertIn(result.returncode, (0, 1, 2))
+        self.assertNotIn("--firmware", result.stderr)
+
+    def test_drift_does_not_need_host_or_firmware(self):
+        result = subprocess.run(
+            [sys.executable, str(ROOT / "tools/tv.py"), "drift"],
+            check=False, capture_output=True, text=True,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("--firmware", result.stderr)
+        self.assertNotIn("--host is required", result.stderr)
+        self.assertTrue("--snapshot" in result.stderr or "required" in result.stderr.lower())
 
 
 if __name__ == "__main__":

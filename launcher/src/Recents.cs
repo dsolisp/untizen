@@ -14,12 +14,59 @@ public sealed class InputDef
  public string Action{get{return "hdmi:"+Source;}}
 }
 
+public static class StatePaths
+{
+ public const string RecentsNew="/var/tmp/untizen-recents.json";
+ public const string RecentsOld="/var/tmp/quiet-home-recents.json";
+ public const string ThemeNew="/var/tmp/untizen-theme.conf";
+ public const string ThemeOld="/var/tmp/quiet-home-theme.conf";
+ public const string StateNew="/tmp/untizen-state.txt";
+ public const string StateOld="/tmp/quiet-home-state.txt";
+ public const string BridgeNew="/tmp/untizen-bridge.txt";
+ public const string BridgeOld="/tmp/quiet-home-bridge.txt";
+ // Read the new path if it exists, else the quiet-home leftover, else write the new one.
+ public static string Prefer(string newer,string older,Func<string,bool> exists)
+ {
+  if(exists(newer))return newer;
+  if(exists(older))return older;
+  return newer;
+ }
+}
+
 public static class Inputs
 {
- public static readonly List<InputDef> All=new List<InputDef>{
-  new InputDef{Name="PS5",Source=14,Tagline="Let's play.",Description="Console · HDMI",Hero="hero-ps5.svg",Portrait="portrait-ps5.svg",Dock="ps5"},
-  new InputDef{Name="Xbox",Source=13,Tagline="Game on.",Description="Console · HDMI",Hero="hero-xbox.svg",Portrait="feature-xbox.svg",Dock="xbox"},
-  new InputDef{Name="PC",Source=16,Tagline="Back to it.",Description="Computer · HDMI",Hero="hero-pc.svg",Portrait="feature-hdmi.svg",Dock="pc"}};
+ static List<InputDef> all=DefaultInputs();
+ public static List<InputDef> All{get{return all;}}
+ static List<InputDef> DefaultInputs()
+ {
+  return new List<InputDef>{
+   new InputDef{Name="PS5",Source=14,Tagline="Let's play.",Description="Console · HDMI",Hero="hero-ps5.svg",Portrait="portrait-ps5.svg",Dock="ps5"},
+   new InputDef{Name="Xbox",Source=13,Tagline="Game on.",Description="Console · HDMI",Hero="hero-xbox.svg",Portrait="feature-xbox.svg",Dock="xbox"},
+   new InputDef{Name="PC",Source=16,Tagline="Back to it.",Description="Computer · HDMI",Hero="hero-pc.svg",Portrait="feature-hdmi.svg",Dock="pc"}};
+ }
+ public static void Reset(){all=DefaultInputs();}
+ public static void Load(string path)
+ {
+  if(string.IsNullOrEmpty(path)||!File.Exists(path))return;
+  try{
+   using var doc=JsonDocument.Parse(File.ReadAllText(path));
+   if(doc.RootElement.ValueKind!=JsonValueKind.Array)return;
+   var loaded=new List<InputDef>();
+   foreach(var item in doc.RootElement.EnumerateArray())
+   {
+    if(!item.TryGetProperty("Source",out var sourceEl)||!sourceEl.TryGetInt32(out int source))continue;
+    loaded.Add(new InputDef{
+     Name=Str(item,"Name"),Source=source,Tagline=Str(item,"Tagline"),
+     Description=Str(item,"Description"),Hero=Str(item,"Hero"),
+     Portrait=Str(item,"Portrait"),Dock=Str(item,"Dock")});
+   }
+   if(loaded.Count>0)all=loaded;
+  }catch{}
+ }
+ static string Str(JsonElement item,string name)
+ {
+  return item.TryGetProperty(name,out var value)&&value.ValueKind==JsonValueKind.String?value.GetString():"";
+ }
  public static InputDef BySource(int source){return All.Find(i=>i.Source==source);}
  public static InputDef ByAction(string action){return All.Find(i=>i.Action==action);}
  // Hero first: the input the TV is on right now, then the journal, then catalogue order.

@@ -49,10 +49,13 @@ tv push .local/build/Probe/Probe.dll Probe.dll
 tv exec --command '/usr/bin/dotnet /home/owner/share/tmp/sdk_tools/untizen/Probe.dll'
 ```
 
-Edit labels, source actions, `RefreshSource`, `SourceIndex` and the default
-`lastSource` in `launcher/src/Home.cs` to match the actual devices. The library
-is read from `apps.json`; verify all app IDs against the TV. See
-[app configuration](06-artwork.md). Rebuild after source changes.
+Copy the integers Probe printed into `launcher/assets/sources.json` (or an
+ignored overlay next to it). Quiet Home loads that file from the same resource
+root as `apps.json`; `DiscoverRoot` prefers the installed package resource
+directory and falls back to the container's `quiet-home/` path. Do not reuse
+another panel's HDMI mapping. The library is read from `apps.json`; verify
+all app IDs against the TV. See [app configuration](06-artwork.md). Rebuild
+after source changes.
 
 ## Install without changing Home yet
 
@@ -92,8 +95,12 @@ Verify visibly:
 - Chosen app shortcuts launch the correct installed apps.
 - The Controllers shortcut reaches the Bluetooth device list.
 
-The `build_ms` value in `/tmp/quiet-home-state.txt` measures scene construction,
-not input-to-photon latency or complete rendering time.
+The `build_ms` value in `/tmp/untizen-state.txt` (or a leftover
+`/tmp/quiet-home-state.txt`) measures scene construction, not
+input-to-photon latency or complete rendering time. Recents and theme files
+are written to `/var/tmp/untizen-recents.json` and
+`/var/tmp/untizen-theme.conf`; the previous `quiet-home-*` paths are still
+read if the new files are absent.
 
 ## Make it open on Home and startup
 

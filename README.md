@@ -24,7 +24,8 @@ Your TV boots into a shopping mall. UnTizen gives you back the display:
   no "recommended for you" rows, no 20-second boot animation.
 - **A home that follows the household**: the hero card is the input you used
   last, and the dock keeps the five most recent apps and inputs, newest first.
-  The journal lives in `/var/tmp/quiet-home-recents.json`.
+  The journal lives in `/var/tmp/untizen-recents.json` (a leftover
+  `/var/tmp/quiet-home-recents.json` is still read).
 - **A debloat planner** that disables registry flags for advertising, ACR,
   TV Plus, hotel/B2B signage and cloud-gaming helpers — one reviewed group at a
   time, with generated field-specific rollback SQL. Nothing is deleted.
@@ -116,8 +117,10 @@ assign Home/startup.
 | [Cleanup catalog](data/cleanup-groups.json) | Model-agnostic bloat groups as `app_id` globs, plus the `keep_active` invariants no group may match |
 | [Profiles](profiles) | Per-device facts: model, firmware, kernel, runtime, registry, launcher container, selected groups and overrides |
 | [Cleanup planner](tools/plan_cleanup.py) | Resolves the catalog against *your* snapshot and emits guarded apply/restore SQL |
-| [Access helper](tools/tv.py) | Profile-resolving SDB preflight, temporary authenticated root, bounded transfers, session cleanup checks |
-| [Recipes](recipes) | Snapshot, status, stop-marker, launcher, settings-bridge and restoration scripts |
+| [Access helper](tools/tv.py) | Profile-resolving SDB preflight, read-only `inventory`, temporary authenticated root, bounded transfers |
+| [Device notes](docs/devices/README.md) | One-session inventories; not a substitute for an end-to-end profile |
+| [Showcase](SHOWCASE.md) | Ports, restyles and other-OS work that stay out of this tree |
+| [Recipes](recipes) | Inventory, snapshot, status, stop-marker, launcher, settings-bridge and restoration scripts |
 | [Artwork tools](docs/06-artwork.md) | Vector/high-resolution sources, optional local downloads, retained image views |
 
 ## How the debloat stays safe
@@ -134,24 +137,20 @@ assign Home/startup.
   `app_autorestart`), inside one `BEGIN IMMEDIATE` transaction with a guard row
   per app. Drift aborts the transaction instead of overwriting it.
 - Every plan ships with its exact inverse, generated from the same snapshot.
+  `recovery.json` is first-wins. `tv drift` compares a later snapshot to that
+  plan without needing a TV.
 - Packages are never deleted, no partition is touched, no firmware is flashed,
   `/etc/passwd` and Samsung's SDB key stay as they are, and root is temporary
   per command.
 
 ## Give this repository to your coding agent
 
-Clone it, open it in your agent, and use:
-
-> Read README.md and AGENTS.md, then inspect the documentation before touching
-> my TV. Help me reproduce UnTizen on a TV I own. First identify its exact
-> model, firmware and runtime, compare them with the closest profile, and show
-> me any compatibility gaps. Keep HDMI, sound, networking, Bluetooth and
-> accessibility working. Prefer HDMI and minimize smart features; keep the
-> streaming apps I choose. Back up my actual settings and prepare rollback
-> before each change. Install and verify the launcher before assigning it to
-> Home/startup or replacing the settings sidebar. Use measured findings and
-> known limitations rather than assuming every package is spyware or promising a
-> particular speed improvement.
+Clone it, open it in Cursor, Claude Code, Codex or Gemini CLI, and paste
+[`PROMPT.md`](PROMPT.md). Fill in the model, firmware and TV IP from About
+This TV and the network settings — never guess the firmware. Agents also
+read [AGENTS.md](AGENTS.md): cleaning a TV follows the prompt and must not
+edit the repo; changing profiles, the catalog or the launcher is a separate
+job.
 
 ## Development
 

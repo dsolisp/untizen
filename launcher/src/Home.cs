@@ -10,10 +10,10 @@ using Tizen.Applications;
 
 public sealed class QuietHome : NUIApplication
 {
- const string Root="/opt/usr/apps/com.samsung.tv.bixby-promotion/res/quiet-home/";
- const string StateFile="/tmp/quiet-home-state.txt";
- const string ThemeFile="/var/tmp/quiet-home-theme.conf";
- const string RecentsFile="/var/tmp/quiet-home-recents.json";
+ string Root="/opt/usr/apps/com.samsung.tv.bixby-promotion/res/quiet-home/";
+ string StateFile=StatePaths.StateNew;
+ string ThemeFile=StatePaths.ThemeNew;
+ string RecentsFile=StatePaths.RecentsNew;
  sealed class Slot { public View Card,Shadow,FocusRing; public TextLabel Label; public string Name,Action,Description; public int Row,X,Y,W,H; }
  sealed class CachedArtwork { public ImageView Image; public View Parent; }
  sealed class Theme
@@ -80,8 +80,13 @@ public sealed class QuietHome : NUIApplication
  protected override void OnCreate()
  {
   base.OnCreate();
+  Root=DiscoverRoot();
+  RecentsFile=StatePaths.Prefer(StatePaths.RecentsNew,StatePaths.RecentsOld,File.Exists);
+  ThemeFile=StatePaths.Prefer(StatePaths.ThemeNew,StatePaths.ThemeOld,File.Exists);
+  StateFile=StatePaths.Prefer(StatePaths.StateNew,StatePaths.StateOld,File.Exists);
   try{fontLoaded=FontClient.Instance.AddCustomFontDirectory(Root+"fonts");}catch{fontLoaded=false;}
   try{library=AppLibrary.Load(Root+"apps.json");}catch(Exception ex){libraryError=ex.Message;}
+  try{Inputs.Load(Root+"sources.json");}catch{}
   recents=Recents.Load(RecentsFile);
   ApplyTheme(Theme.ByName(LoadThemeName()));
   Window.Default.Title="Quiet Home";Window.Default.KeyEvent+=OnKey;
@@ -95,10 +100,35 @@ public sealed class QuietHome : NUIApplication
  protected override void OnPause(){base.OnPause();editing="";clockTimer?.Stop();WriteState("paused");}
  void Home(string activity){clockTimer?.Start();RefreshSource();if(tabs!=null){bool unchanged=page==0&&area==1&&editing==""&&selected==0&&!recentsDirty&&homeSource==lastSource;page=0;area=1;editing="";selected=0;if(!unchanged)BuildPage();WriteState(activity);}}
  void OpenSettings(string activity){clockTimer?.Start();page=2;area=1;selected=0;editing="";BuildPage();WriteState(activity);}
- void RefreshSource(){try{int n;if(vconf_get_int("memory/system/source_type",out n)==0&&n>=13&&n<=16)lastSource=n;}catch{}}
+ static string DiscoverRoot()
+ {
+  const string fallback="/opt/usr/apps/com.samsung.tv.bixby-promotion/res/quiet-home/";
+  try
+  {
+   string res=Application.Current.DirectoryInfo.Resource;
+   if(!string.IsNullOrEmpty(res))
+   {
+    if(!res.EndsWith("/",StringComparison.Ordinal))res+="/";
+    if(File.Exists(res+"apps.json"))return res;
+    if(File.Exists(res+"quiet-home/apps.json"))return res+"quiet-home/";
+   }
+  }
+  catch{}
+  return fallback;
+ }
+ void RefreshSource()
+ {
+  try
+  {
+   int n;
+   if(vconf_get_int("memory/system/source_type",out n)!=0)return;
+   if(Inputs.BySource(n)!=null)lastSource=n;
+  }
+  catch{}
+ }
  void ApplyTheme(Theme t){theme=t;ink=t.Ink;muted=t.Muted;accent=t.Accent;try{Window.Default.BackgroundColor=t.WindowBg;}catch{}}
  string LoadThemeName(){try{if(File.Exists(ThemeFile)){string t=File.ReadAllText(ThemeFile).Trim();if(t=="glass"||t=="dark"||t=="original")return t;}}catch{}return "original";}
- void SaveThemeName(string name){try{File.WriteAllText(ThemeFile,name+"\n");}catch{}}
+ void SaveThemeName(string name){try{File.WriteAllText(StatePaths.ThemeNew,name+"\n");ThemeFile=StatePaths.ThemeNew;}catch{}}
  void CycleTheme(int delta){int i=Array.IndexOf(Theme.Names,theme.Name);i=((i+delta)%3+3)%3;string name=Theme.Names[i];ApplyTheme(Theme.ByName(name));SaveThemeName(name);BuildPage();}
  void ThemeBar()
  {
@@ -296,7 +326,8 @@ public sealed class QuietHome : NUIApplication
  }
  void RecordRecent(string action)
  {
-  recents=Recents.Record(recents,action);recentsDirty=true;Recents.Save(RecentsFile,recents);
+  recents=Recents.Record(recents,action);recentsDirty=true;
+  Recents.Save(StatePaths.RecentsNew,recents);RecentsFile=StatePaths.RecentsNew;
   // Warm the dock-size decode now, while the launched app takes the screen.
   var app=action.StartsWith("app:")?library.Find(a=>a.Id==action.Substring(4)):null;
   if(app!=null)GetArtwork(app,253,126);
@@ -444,6 +475,6 @@ public sealed class QuietHome : NUIApplication
    if(r==0)r=app_control_send_launch_request(c,IntPtr.Zero,IntPtr.Zero);WriteState("launch:"+id+(menuItem==null?"":":"+menuItem)+":"+r);if(r!=0)ShowError("Could not open this screen. Try Advanced settings.");}finally{app_control_destroy(c);}
  }
  void ShowError(string text){notice.Text=text;}
- void WriteState(string activity){try{File.WriteAllText(StateFile,DateTime.UtcNow.ToString("o")+"\npage="+page+"\nselected="+selected+"\narea="+area+"\nactivity="+activity+"\nkey="+lastKey+"\nfont_loaded="+fontLoaded+"\nstyle=free-my-tv\ntheme="+theme.Name+"\nbuild_ms="+buildMilliseconds+"\nlibrary_page="+libraryPage+"\nlibrary_count="+library.Count+"\nlibrary_error="+libraryError+"\nselected_name="+(selected>=0&&selected<slots.Count?slots[selected].Name:"")+"\nartwork_cached="+artworkCache.Count+"\nartwork_ready="+ArtworkReadyCount()+"\nartwork_pending="+ArtworkPending()+"\nartwork_views_created="+artworkViewsCreated+"\npage_artwork_cold="+pageArtworkCold+"\nprocess_id="+Process.GetCurrentProcess().Id+"\nediting="+editing+"\nvolume="+currentVolume+"\nmute="+currentMute+"\nbrightness="+SettingValue("brightness")+"\ngame-mode="+SettingValue("game-mode")+"\nsleeptimer="+SettingValue("sleeptimer")+"\nrecents="+string.Join(",",recents)+"\n");}catch{}}
+ void WriteState(string activity){try{File.WriteAllText(StatePaths.StateNew,DateTime.UtcNow.ToString("o")+"\npage="+page+"\nselected="+selected+"\narea="+area+"\nactivity="+activity+"\nkey="+lastKey+"\nfont_loaded="+fontLoaded+"\nstyle=free-my-tv\ntheme="+theme.Name+"\nbuild_ms="+buildMilliseconds+"\nlibrary_page="+libraryPage+"\nlibrary_count="+library.Count+"\nlibrary_error="+libraryError+"\nselected_name="+(selected>=0&&selected<slots.Count?slots[selected].Name:"")+"\nartwork_cached="+artworkCache.Count+"\nartwork_ready="+ArtworkReadyCount()+"\nartwork_pending="+ArtworkPending()+"\nartwork_views_created="+artworkViewsCreated+"\npage_artwork_cold="+pageArtworkCold+"\nprocess_id="+Process.GetCurrentProcess().Id+"\nediting="+editing+"\nvolume="+currentVolume+"\nmute="+currentMute+"\nbrightness="+SettingValue("brightness")+"\ngame-mode="+SettingValue("game-mode")+"\nsleeptimer="+SettingValue("sleeptimer")+"\nrecents="+string.Join(",",recents)+"\n");StateFile=StatePaths.StateNew;}catch{}}
  public static void Main(string[] args){using(var app=new QuietHome())app.Run(args);}
 }

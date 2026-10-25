@@ -25,6 +25,17 @@ class PackageTests(unittest.TestCase):
             self.assertTrue((ROOT / "launcher/assets" / asset).is_file(), asset)
         self.assertEqual(sum(bool(a.get("Utility")) for a in catalog), 1)
 
+    def test_sources_json_assets_exist_and_hdmi_ids_are_unique(self):
+        sources = json.loads((ROOT / "launcher/assets/sources.json").read_text())
+        self.assertGreaterEqual(len(sources), 1)
+        self.assertEqual(len({item["Source"] for item in sources}), len(sources))
+        for item in sources:
+            self.assertIsInstance(item["Source"], int)
+            for key in ("Hero", "Portrait"):
+                asset = item[key]
+                self.assertNotIn("..", asset)
+                self.assertTrue((ROOT / "launcher/assets" / asset).is_file(), asset)
+
     def test_shell_syntax(self):
         for path in (ROOT / "recipes").glob("*.sh"):
             subprocess.run(["sh", "-n", str(path)], check=True, capture_output=True)
@@ -46,7 +57,9 @@ class PackageTests(unittest.TestCase):
                 convert(data, entry)
 
     def test_relative_document_links_resolve(self):
-        for doc in [ROOT / "README.md", ROOT / "NOTICE.md", *sorted((ROOT / "docs").glob("*.md"))]:
+        for doc in [ROOT / "README.md", ROOT / "NOTICE.md",
+                    *sorted((ROOT / "docs").glob("*.md")),
+                    *sorted((ROOT / "docs").glob("**/*.md"))]:
             for link in re.findall(r"\[[^\]]*\]\(([^ )]+)(?: [^)]*)?\)", doc.read_text()):
                 if "://" in link or link.startswith("#"):
                     continue

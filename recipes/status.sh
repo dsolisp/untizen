@@ -20,4 +20,6 @@ vconftool get db/was/preload_by_country
 sqlite3 -readonly /opt/dbspace/.webappservice.db \
     "SELECT json_extract(value,'$.rsp.preloadByCountry') FROM WASConfigTable WHERE name='RESERVED_18' AND json_valid(value);"
 printf '\nLauncher diagnostic state (local, overwritten)\n'
-if [ -f /tmp/quiet-home-state.txt ]; then cat /tmp/quiet-home-state.txt; fi
+if [ -f /tmp/untizen-state.txt ]; then cat /tmp/untizen-state.txt
+elif [ -f /tmp/quiet-home-state.txt ]; then cat /tmp/quiet-home-state.txt
+fi

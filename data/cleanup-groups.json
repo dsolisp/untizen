@@ -38,6 +38,10 @@
     {
       "pattern": "org.tizen.epg",
       "reason": "Programme guide for broadcast TV."
+    },
+    {
+      "pattern": "org.tizen.menu",
+      "reason": "Native advanced, network and Bluetooth settings. Quiet Home does not replace these screens."
     }
   ],
   "groups": {

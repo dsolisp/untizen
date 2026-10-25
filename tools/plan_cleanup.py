@@ -135,9 +135,20 @@ def main():
                 "groups": {group: per_group[group] for group in groups},
                 "apps": [{"app_id": app, **dict(zip(FIELDS, vals))} for app, vals in rows]}
     (out / "before.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    import recovery
+    recovery.save_first_wins(out / "recovery.json", manifest)
+    sidecar = ROOT / ".local/recovery" / recovery.sidecar_name(profile["model"], profile["firmware"], groups)
+    sidecar.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    recovery.save_first_wins(sidecar, manifest)
+    markers = profile.get("stop_markers") or []
+    (out / "stop-markers.json").write_text(json.dumps(markers, indent=2) + "\n")
     print(f"Generated {len(rows)} targeted changes and inverse operations in {out.relative_to(ROOT)}.")
     print("Review apply.sql and restore.sql. Preserve the snapshot and an on-TV copy of the restore script.")
     print("These plans only edit registry flags; markers, running apps and preferences are separate phases.")
+    if markers:
+        print(f"Profile lists {len(markers)} stop_markers in stop-markers.json; inspect units before applying them.")
+    else:
+        print("This profile has no stop_markers; do not invent unit/marker pairs.")
 
 
 if __name__ == "__main__":

@@ -173,6 +173,8 @@ class CatalogPlanTests(unittest.TestCase):
         self.assertIn("apply.sql", outputs[0])
         self.assertIn("restore.sql", outputs[0])
         self.assertIn("before.json", outputs[0])
+        self.assertIn("recovery.json", outputs[0])
+        self.assertIn("stop-markers.json", outputs[0])
 
     def test_plans_must_stay_inside_the_private_directory(self):
         outside = Path(self.temp.name) / "plan"

@@ -22,7 +22,7 @@ public sealed class QuickLaunch : NUIApplication {
    if(result==0)result=app_control_add_extra_data(c,"quiet_page","settings");
    if(result==0)result=app_control_send_launch_request(c,IntPtr.Zero,IntPtr.Zero);
   }finally{app_control_destroy(c);}}}
-  try{File.WriteAllText("/tmp/quiet-home-bridge.txt",DateTime.UtcNow.ToString("o")+"\npreload="+preload+"\nresult="+result+"\n");}catch{}
+  try{File.WriteAllText("/tmp/untizen-bridge.txt",DateTime.UtcNow.ToString("o")+"\npreload="+preload+"\nresult="+result+"\n");}catch{}
   Exit();
  }
  public static void Main(string[] args){using(var app=new QuickLaunch())app.Run(args);}

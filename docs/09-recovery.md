@@ -24,8 +24,11 @@ tv exec --command 'cat /opt/usr/share/untizen-backups/advertising-01/restore-reg
 ```
 
 Only the selected three registry fields are restored. If a drift guard fails,
-inspect the current rows and original `before.json`; reconcile the difference
-instead of removing the guard or overwriting the whole database.
+inspect the current rows and the first-wins `recovery.json` next to
+`before.json`; reconcile the difference instead of removing the guard or
+overwriting the whole database. `tv drift --snapshot … --plan …` reports
+which planned rows are no longer disabled. `--fix` reprints the original
+apply command; it does not rewrite the first recovery record.
 
 For each stop marker changed in that phase, restore it after the registry:
 
@@ -82,7 +85,8 @@ advertising/voice feature on.
 
 ## If the UI is blank or a button opens the wrong page
 
-If SDB still works, inspect `/tmp/quiet-home-state.txt`, the installed assembly
+If SDB still works, inspect `/tmp/untizen-state.txt` (or a leftover
+`/tmp/quiet-home-state.txt`), the installed assembly
 hash, resource paths, owner/SMACK labels, `.native_image` cache and the three
 Home selectors. An old cached native assembly can run even after replacing
 the DLL. Revert the relevant phase rather than changing unrelated firmware

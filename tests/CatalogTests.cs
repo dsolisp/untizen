@@ -72,6 +72,25 @@ static class CatalogTests
             Equal(0, Recents.Load(recentsTmp).Count, "corrupt journal starts empty");
         }
         finally { File.Delete(recentsTmp); }
+        string sourcesTmp = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(sourcesTmp,
+                "[{\"Name\":\"Switch\",\"Source\":15,\"Tagline\":\"Docked.\",\"Description\":\"Console · HDMI\",\"Hero\":\"hero.svg\",\"Portrait\":\"portrait.svg\",\"Dock\":\"switch\"}]");
+            Inputs.Load(sourcesTmp);
+            Equal(1, Inputs.All.Count, "sources.json replaces the built-in list");
+            if (Inputs.BySource(15)==null || Inputs.BySource(14)!=null)
+                throw new Exception("loaded sources must replace the defaults");
+            Inputs.Reset();
+            if (Inputs.BySource(14)==null) throw new Exception("Reset restores the built-in HDMI list");
+        }
+        finally { File.Delete(sourcesTmp); Inputs.Reset(); }
+        if (StatePaths.Prefer("/new","/old",p=>p=="/new")!="/new")
+            throw new Exception("Prefer the new path when it exists");
+        if (StatePaths.Prefer("/new","/old",p=>p=="/old")!="/old")
+            throw new Exception("Prefer the quiet-home leftover when the new path is absent");
+        if (StatePaths.Prefer("/new","/old",p=>false)!="/new")
+            throw new Exception("Write the new path when neither file exists");
         Console.WriteLine("Catalog, navigation, invalid-input and recents checks passed.");
         return 0;
     }

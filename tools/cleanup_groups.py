@@ -11,7 +11,39 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CATALOG_PATH = ROOT / "data" / "cleanup-groups.json"
-PROFILE_REQUIRED = ("profile_version", "model", "firmware", "kernel", "runtime", "registry", "container")
+PROFILE_REQUIRED = (
+    "profile_version", "model", "firmware", "kernel", "runtime",
+    "registry", "container", "stop_markers",
+)
+# These globs are the stock home / settings shell. A group that ships them is a
+# broken TV, not a successful plan. Precise IDs such as coba.adagent stay allowed.
+FORBIDDEN_GLOBS = (
+    "com.samsung.tv.coba.*",
+    "com.samsung.tv.coba",
+    "org.tizen.menu",
+    "org.tizen.menu*",
+    "org.tizen.menu.*",
+)
+
+
+def exact_ids(patterns):
+    return [pattern for pattern in patterns if "*" not in pattern and "?" not in pattern]
+
+
+def refuse_forbidden_glob(pattern, group=None):
+    if pattern in FORBIDDEN_GLOBS:
+        where = f"Group {group!r}" if group else "Catalog"
+        raise ValueError(
+            f"{where} ships forbidden glob {pattern!r}. "
+            "com.samsung.tv.coba.adagent is evidence; coba.* is the stock home shell.")
+
+
+def refuse_glob_covering_keep_active(pattern, keep_patterns, group=None):
+    where = f"Group {group!r}" if group else "Catalog"
+    for keep in exact_ids(keep_patterns):
+        if fnmatch.fnmatchcase(keep, pattern):
+            raise ValueError(
+                f"{where} glob {pattern!r} covers keep_active {keep!r}.")
 
 
 def load_catalog(path=CATALOG_PATH):
@@ -22,6 +54,7 @@ def load_catalog(path=CATALOG_PATH):
     for entry in catalog["keep_active"]:
         if not entry.get("pattern") or not entry.get("reason"):
             raise ValueError("Every keep_active entry needs a pattern and a reason.")
+    keep_patterns = [entry["pattern"] for entry in catalog["keep_active"]]
     for name, group in catalog["groups"].items():
         if not group.get("description"):
             raise ValueError(f"Group {name!r} is missing a description.")
@@ -31,6 +64,8 @@ def load_catalog(path=CATALOG_PATH):
         for pattern in patterns:
             if any(ch in pattern for ch in "/'\";\n"):
                 raise ValueError(f"Group {name!r} has an unsafe glob: {pattern!r}")
+            refuse_forbidden_glob(pattern, name)
+            refuse_glob_covering_keep_active(pattern, keep_patterns, name)
     return catalog
 
 
@@ -81,7 +116,12 @@ def group_patterns(catalog, profile, group):
     cleanup = profile.get("cleanup", {})
     patterns += list(cleanup.get("add", {}).get(group, []))
     dropped = set(cleanup.get("remove", {}).get(group, []))
-    return [pattern for pattern in patterns if pattern not in dropped]
+    keep_patterns = [entry["pattern"] for entry in catalog["keep_active"]]
+    selected = [pattern for pattern in patterns if pattern not in dropped]
+    for pattern in selected:
+        refuse_forbidden_glob(pattern, group)
+        refuse_glob_covering_keep_active(pattern, keep_patterns, group)
+    return selected
 
 
 def match_group(catalog, profile, group, snapshot_ids):

@@ -43,16 +43,36 @@ restoration does not accidentally erase an earlier desired change.
 tv exec --script recipes/snapshot.sh --arg advertising-01
 tv pull /opt/usr/share/untizen-backups/advertising-01/.pkgmgr_parser.db .local/advertising-01-registry.db
 python3 tools/plan_cleanup.py \
+  --profile profiles/un75u8000ffxza-1300.9.json \
   --snapshot .local/advertising-01-registry.db \
-  --groups advertising \
-  --output .local/plans/advertising-01
+  --groups advertising
 ```
 
-Inspect `apply.sql`, `restore.sql` and `before.json`. The planner requires one
-matching row per selected app and recognized boolean representations.
-It refuses missing/duplicate records and generates guards against state drift.
-An update to another field/app is preserved. A change to a selected field
-causes the plan to stop instead of silently overwriting it.
+`--profile` is required. Omit `--output` to print the matched IDs; review them
+before writing SQL. Then re-run with `--output .local/plans/advertising-01`.
+
+Inspect `apply.sql`, `restore.sql`, `before.json`, `recovery.json` and
+`stop-markers.json`. The planner requires one matching row per selected app
+and recognized boolean representations. It refuses missing/duplicate records
+and generates guards against state drift. An update to another field/app is
+preserved. A change to a selected field causes the plan to stop instead of
+silently overwriting it.
+
+`recovery.json` is first-wins: the first write keeps the original field
+values. A later run of the same plan may only append app IDs the plan gained.
+A sidecar copy is also written under `.local/recovery/`. Do not delete the
+first record to make a retry succeed.
+
+After a restart or an update, compare a fresh snapshot to the plan without
+touching the TV:
+
+```sh
+tv drift --snapshot .local/advertising-01-after.db --plan .local/plans/advertising-01
+```
+
+`--fix` prints how to re-apply the original `apply.sh`. It does not rewrite
+recovery. If the profile's `stop_markers` is an empty list, do not invent
+unit/marker pairs from another model.
 
 Save the generated restore script on the TV **before** applying:
 

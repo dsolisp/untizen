@@ -1,0 +1,29 @@
+[
+  {
+    "Name": "PS5",
+    "Source": 14,
+    "Tagline": "Let's play.",
+    "Description": "Console · HDMI",
+    "Hero": "hero-ps5.svg",
+    "Portrait": "portrait-ps5.svg",
+    "Dock": "ps5"
+  },
+  {
+    "Name": "Xbox",
+    "Source": 13,
+    "Tagline": "Game on.",
+    "Description": "Console · HDMI",
+    "Hero": "hero-xbox.svg",
+    "Portrait": "feature-xbox.svg",
+    "Dock": "xbox"
+  },
+  {
+    "Name": "PC",
+    "Source": 16,
+    "Tagline": "Back to it.",
+    "Description": "Computer · HDMI",
+    "Hero": "hero-pc.svg",
+    "Portrait": "feature-hdmi.svg",
+    "Dock": "pc"
+  }
+]
