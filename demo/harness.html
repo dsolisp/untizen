@@ -12,6 +12,7 @@
   Parameters: page=home|apps|settings   theme=original|glass|dark
               focus=<slot index>        libpage=<library page>
               recents=<comma separated actions, newest first>  live=<vconf source>
+              installed=<id:Name,...>   hidden=<id,...>   allview=1
 
   recents/live mirror the launcher's journal and the TV's live input, so shots can
   show the hero and dock reordering exactly like Inputs.Ordered/Recents.DockActions.
@@ -47,6 +48,12 @@ const libpage = parseInt(params.get("libpage") || "0", 10);
 const recents = (params.get("recents") || "").split(",").map(s => s.trim())
                   .filter(s => s.startsWith("app:") || s.startsWith("hdmi:"));
 const live = parseInt(params.get("live") || "14", 10);
+/* Mirrors apps-installed.json + /var/tmp/untizen-menu.json (hidden list). */
+const allview = params.get("allview") === "1" && page === "apps";
+const hidden = (params.get("hidden") || "").split(",").map(s => s.trim()).filter(Boolean);
+const installed = (params.get("installed") || "").split(",").map(s => s.trim()).filter(Boolean)
+  .map(part => { const bits = part.split(":"); return {Id: bits[0], Name: bits.slice(1).join(":") || bits[0],
+    Asset: "installed-tile.svg", Background: "#23252c", Fit: "none"}; });
 
 /* Mirrors launcher/src/Recents.cs: catalogue order, hero order and dock fill. */
 const INPUTS = [
@@ -120,7 +127,7 @@ function card(x, y, w, h, radius, bg, focused, row) {
 
 /* ---- chrome: background, title, tabs, clock --------------------------- */
 img(T.bg, 0, 0, 1920, 1080);
-text(page === "home" ? "Home" : page === "apps" ? "Your Apps" : "Quick Settings", 76, 55, 1350, 100, 76, T.ink, "Display");
+text(page === "home" ? "Home" : page === "apps" ? (allview ? "All Apps" : "Your Apps") : "Quick Settings", 76, 55, 1350, 100, 76, T.ink, "Display");
 const nav = [["Inputs", 54, 153], ["Apps", 221, 131], ["Settings", 366, 182]];
 const active = page === "home" ? 0 : page === "apps" ? 1 : 2;
 nav.forEach((t, i) => {
@@ -162,20 +169,46 @@ if (page === "home") img("glass-shelf.svg", 0, 784, 1920, 280);
 
 /* ---- library + dock need the catalog ---------------------------------- */
 fetch(A + "apps.json").then(r => r.json()).then(apps => {
+  /* Mirrors MenuCatalog: curated first (installed-only when a catalog exists),
+     then the rest of the installed apps alphabetically, minus the hidden ones. */
+  const filter = installed.length > 0;
+  const installedIds = new Set(installed.map(a => a.Id));
+  const byName = (x, y) => x.Name.localeCompare(y.Name, undefined, {sensitivity: "base"});
+  const visible = apps.filter(a => a.Utility || (!hidden.includes(a.Id) && (!filter || installedIds.has(a.Id))));
+  if (filter) {
+    const curatedIds = new Set(apps.map(a => a.Id));
+    visible.push(...installed.filter(a => !curatedIds.has(a.Id) && !hidden.includes(a.Id)).sort(byName));
+  }
+  const curatedIds = new Set(apps.filter(a => !a.Utility).map(a => a.Id));
+  const allApps = installed.map(a => { const art = apps.find(c => c.Id === a.Id);
+    return art && !art.Utility ? art : a; }).sort(byName);
+  const library = allview ? allApps : visible;
   if (page === "apps") {
-    const start = libpage * 15, count = Math.min(15, apps.length - start);
+    const extra = allview || !filter ? 0 : 1;
+    const start = libpage * 15, count = Math.min(15, library.length + extra - start);
     for (let i = 0; i < count; i++) {
-      const app = apps[start + i];
+      const index = start + i, allTile = !allview && index >= library.length;
+      const app = allTile ? null : library[index];
       const x = 80 + (i % 5) * 358, y = 266 + Math.floor(i / 5) * 245;
-      slot(app.Name, 3, x, y, 328, 184, (el, f) => {
-        el.style.background = app.Background;
-        if (!app.Utility) {
+      slot(allTile ? "All apps" : app.Name, 3, x, y, 328, 184, (el, f) => {
+        el.style.background = allTile ? T.card : app.Background;
+        if (allTile) {
+          const im = document.createElement("img"); im.src = A + "all-apps.svg";
+          im.style.cssText = "left:0;top:0;width:328px;height:184px";
+          el.appendChild(im);
+        } else if (!app.Utility) {
           const im = document.createElement("img");
           im.src = A + app.Asset;
           const cover = app.Fit === "cover", iw = cover ? 328 : 274, ih = cover ? 184 : 144;
           im.style.cssText = `left:${(328 - iw) / 2}px;top:${(184 - ih) / 2}px;width:${iw}px;height:${ih}px;` +
                              `object-fit:${cover ? "cover" : "contain"};border-radius:18px`;
           el.appendChild(im);
+          /* Membership dot: accented means "in your apps". */
+          if (allview && !hidden.includes(app.Id)) {
+            const dot = document.createElement("div");
+            dot.style.cssText = `left:${328 - 22}px;top:14px;width:10px;height:10px;border-radius:5px;background:${T.accent}`;
+            el.appendChild(dot);
+          }
         } else {
           const plus = hexLuma(app.Background) > 0.55 ? "#1C1C21" : T.ink;
           const hbar = document.createElement("div");
@@ -185,12 +218,12 @@ fetch(A + "apps.json").then(r => r.json()).then(apps => {
           el.append(hbar, vbar);
         }
       });
-      text(app.Name, x, y + 198, 328, 38, 27, T.ink, "Semibold");
+      text(allTile ? "All apps" : app.Name, x, y + 198, 328, 38, 27, T.ink, "Semibold");
     }
-    text(apps.filter(a => !a.Utility).length + " apps", 80, 218, 500, 30, 21, T.muted);
+    text(allview ? installed.length + " installed" : visible.filter(a => !a.Utility).length + " apps", 80, 218, 500, 30, 21, T.muted);
   }
   if (page === "home") {
-    const allowed = apps.map(a => "app:" + a.Id).concat(INPUTS.map(i => i.action));
+    const allowed = visible.map(a => "app:" + a.Id).concat(INPUTS.map(i => i.action));
     const dock = [];
     for (const a of recents.concat(DEFAULT_DOCK).concat(allowed)) {
       if (dock.length >= 5) break;
@@ -200,14 +233,16 @@ fetch(A + "apps.json").then(r => r.json()).then(apps => {
       const x = Math.round(80 + n * (253.333 + 48));
       img("shadow-dock.svg", x - 24, 842, 301, 190, {opacity: focus === 3 + n ? 1 : 0.55});
       const input = INPUTS.find(i => i.action === action);
-      const official = input ? null : apps.find(a => "app:" + a.Id === action);
+      const official = input ? null : visible.find(a => "app:" + a.Id === action);
       const label = official ? official.Name : input ? input.name : action;
       slot(label, 1, x, 854, 253, 126, el => {
         if (official) {
           el.style.background = official.Background;
           const im = document.createElement("img");
           im.src = A + official.Asset;
-          im.style.cssText = "left:0;top:0;width:253px;height:126px;object-fit:cover;border-radius:22px";
+          im.style.cssText = official.Fit === "cover"
+            ? "left:0;top:0;width:253px;height:126px;object-fit:cover;border-radius:22px"
+            : "left:27px;top:20px;width:199px;height:86px;object-fit:contain;border-radius:18px";
           el.appendChild(im);
         } else {
           const im = document.createElement("img");
@@ -282,7 +317,7 @@ function finish(apps) {
                     T.card, i === focus, s.row);
     s.draw(el, i === focus);
   }
-  text(page === "apps" ? "Select to open · Back to Home" : "Back to input", 1310, 1030, 530, 35, 20, T.muted, "Medium", "end");
+  text(page === "apps" ? (allview ? "Select to add or hide · Back to Your Apps" : "Select to open · Back to Home") : "Back to input", 1150, 1030, 690, 35, 20, T.muted, "Medium", "end");
   document.body.dataset.ready = "1";
 }
 </script>

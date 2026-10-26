@@ -72,6 +72,11 @@ SHOTS = [
     ("home-glass", "page=home&theme=glass&focus=3"),
     ("home-dark", "page=home&theme=dark&focus=0"),
     ("library", "page=apps&theme=glass&focus=0"),
+    ("library-all",
+     "page=apps&theme=glass&focus=0&allview=1"
+     "&installed=com.crunchyroll:Crunchyroll,com.iptv.smarters:IPTV Smarters,"
+     "org.tizen.netflix-app:Netflix,org.tizen.primevideo:Prime Video,"
+     "com.samsung.tv.cobalt-yt:YouTube&hidden=com.iptv.smarters"),
     ("settings", "page=settings&theme=original&focus=8"),
     ("home-recents", "page=home&theme=glass&focus=0&live=0&recents=hdmi:13,app:com.samsung.tv.cobalt-yt"),
 ]

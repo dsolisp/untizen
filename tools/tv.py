@@ -138,7 +138,7 @@ def decode_pull(stdout):
     return data
 
 
-ROOT_ACTIONS = {"root-check", "exec", "pull", "inventory"}
+ROOT_ACTIONS = {"root-check", "exec", "pull", "inventory", "catalog"}
 
 
 def require_callback_host(host, callback_host):
@@ -264,6 +264,259 @@ def print_profiles(profiles):
         print(f"{data['model']:<18} {data['firmware']:<28} {data.get('runtime','?'):<8} {len(groups)}")
 
 
+CATALOG_DENY = {
+    "com.samsung.tv.bixby-promotion",
+    "com.samsung.tv.quicklaunch",
+}
+# The registry separates store and sideloaded apps with app_package_system='false',
+# but Samsung OS components carry that flag too. These families are settings
+# panels, voice/Bixby plumbing, pairing and customer-service views, not tiles the
+# TV lists. Ceiling: a new OS family appears in All Apps until its prefix lands
+# here, or until the owner hides it with Select. Upgrade path: the TV's own
+# app-list query once its filter is known.
+CATALOG_DENY_PREFIXES = (
+    "com.samsung.tv.coba.",
+    "com.samsung.tv.cs",
+    "com.samsung.tv.quick",
+    "com.samsung.tv.cnvoice",
+    "com.samsung.tv.voice",
+    "com.samsung.tv.bixby",
+    "com.samsung.tv.mybixby",
+    "com.samsung.tv.aispeaker-",
+    "com.samsung.tv.autofill-",
+    "com.samsung.tv.cinemagraphapp",
+    "com.samsung.tv.rotation-",
+    "com.samsung.tv.buds-",
+    "com.samsung.tv.tvcamera-",
+    "com.samsung.tv.iotwidget-",
+    "com.samsung.tv.aov-",
+    "com.samsung.tv.accountnudge",
+    "com.samsung.tv.safcommonplugin",
+    "com.samsung.tv.stvirtualhomeapp",
+    "com.samsung.tv.securitycenter",
+    "com.samsung.tv.searchall",
+    "com.samsung.tv.multicontrolapp",
+    "com.samsung.tv.intelligent-action-",
+    "com.samsung.tv.ambientfte",
+    "com.samsung.tv.qsymphony",
+    "com.samsung.tv.remoteapp",
+    "com.samsung.tv.hmp-cn",
+    "com.samsung.tv.reminder",
+    "com.samsung.tv.samsungdex",
+    "com.samsung.tv.weather-viewer",
+    "com.samsung.selfdiagnosis",
+    "com.samsung.tv.easysetup-",
+    "com.samsung.tizen.",
+    "org.tizen.voice-",
+    "org.tizen.remotepc",
+)
+# `*-dummy` rows forward to the real app and never deserve a second tile.
+CATALOG_DENY_SUFFIXES = ("-dummy",)
+
+
+def parse_app_rows(section):
+    """`app_id|label|icon` lines from recipes/catalog.sh into (id, label, icon)."""
+    rows = []
+    for line in (section or "").splitlines():
+        parts = line.split("|")
+        if len(parts) < 3:
+            continue
+        app_id = parts[0].strip()
+        if not app_id or " " in app_id:
+            continue
+        rows.append((app_id, "|".join(parts[1:-1]).strip(), parts[-1].strip()))
+    return rows
+
+
+def is_usable(app_id, curated=False):
+    """A tile the owner can open. A curated id always survives unless it is denied."""
+    if app_id in CATALOG_DENY:
+        return False
+    if curated:
+        return True
+    if app_id.lower().endswith(CATALOG_DENY_SUFFIXES):
+        return False
+    return not app_id.lower().startswith(CATALOG_DENY_PREFIXES)
+
+
+def curated_apps(path=None):
+    """Curated entries from launcher/assets/apps.json as {Id, Name} pairs."""
+    source = Path(path) if path else ROOT / "launcher/assets/apps.json"
+    try:
+        entries = json.loads(source.read_text())
+    except (OSError, ValueError):
+        return []
+    if not isinstance(entries, list):
+        return []
+    return [{"Id": entry["Id"], "Name": entry.get("Name", "")} for entry in entries
+            if isinstance(entry, dict) and isinstance(entry.get("Id"), str)]
+
+
+def curated_ids(apps):
+    """Just the IDs, for the recipe's IN (...) list."""
+    return [entry["Id"] for entry in apps]
+
+
+def catalog_command(profile, curated=()):
+    """The read-only registry dump behind `tv.py catalog`."""
+    script = (ROOT / "recipes/catalog.sh").read_text()
+    quoted = ",".join("'" + app_id + "'" for app_id in curated
+                      if re.fullmatch(r"[A-Za-z0-9._-]{1,200}", app_id))
+    script = script.replace("__CURATED_IDS__", quoted or "''")
+    encoded = base64.b64encode(script.encode()).decode()
+    fallback = {
+        "container": inventory.DEFAULT_CONTAINER,
+        "settings_container": inventory.DEFAULT_SETTINGS_CONTAINER,
+        "registry": inventory.DEFAULT_REGISTRY,
+    }
+    return (
+        script_environment(profile or fallback)
+        + f"printf '%s' {shlex.quote(encoded)} | base64 -d | /bin/sh -s"
+    )
+
+
+def run_readonly_root(args, model, command, timeout=60):
+    """One read-only root command; same session guarantees as inventory."""
+    result = asyncio.run(probe(
+        args.host, model=model, callback_host=args.callback_host,
+        payloads=ROOT / ".local/build/payloads", commands=(command,), command_timeout=timeout,
+    ))
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
+    save_private(ROOT / ".local/sessions" / f"{stamp}.json",
+                 (json.dumps(result, indent=2) + "\n").encode())
+    if result.get("uid") != 0 or result.get("euid") != 0:
+        raise ValueError("The callback did not prove UID/EUID 0.")
+    if not result.get("system_files_unchanged") or not result.get("staging_cleaned"):
+        raise ValueError("Root session cleanup checks failed; inspect the private session log.")
+    response = result["commands"][0]
+    if response["stderr"]:
+        print(response["stderr"], file=sys.stderr, end="")
+    if response["exit_code"] or response["timed_out"]:
+        raise RuntimeError(
+            f"Catalog command failed ({response['exit_code']}, timeout={response['timed_out']}).")
+    return response["stdout"]
+
+
+def humanize(app_id):
+    """Best-effort display name when the registry has no label."""
+    tail = re.split(r"[._]", app_id)[-1]
+    words = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", tail.replace("-", " ").replace("_", " "))
+    return words.strip() or app_id
+
+
+def build_entries(rows, curated=()):
+    """Catalog entries sorted by display name.
+
+    Unusable rows and repeated IDs drop. Two names collide on this panel
+    (YouTube ships as a system wrapper plus the store app, and two rows are
+    called "Apps"), so one tile per display name survives, curated first and
+    then the lexicographically smaller id for a stable result."""
+    keep_ids = {entry["Id"] for entry in curated}
+    preferred = [row for row in rows if row[0] in keep_ids]
+    rest = sorted((row for row in rows if row[0] not in keep_ids), key=lambda row: row[0])
+    entries, seen_ids, seen_names = [], set(), set()
+    for app_id, label, icon in preferred + rest:
+        if app_id in seen_ids or not is_usable(app_id, app_id in keep_ids):
+            continue
+        name = label or humanize(app_id)
+        if name.lower() in seen_names:
+            continue
+        seen_ids.add(app_id)
+        seen_names.add(name.lower())
+        entry = {"Id": app_id, "Name": name}
+        if icon:
+            entry["Icon"] = icon
+        entries.append(entry)
+    entries.sort(key=lambda entry: entry["Name"].lower())
+    return entries
+
+
+def tile_background(rgb):
+    """Tile colour from an icon's mean colour, clamped into a readable range."""
+    r, g, b = (max(0, min(255, int(value))) for value in rgb)
+    luma = 0.2126 * r + 0.7152 * g + 0.0722 * b
+    if luma > 86:
+        scale = 86 / luma
+        r, g, b = int(r * scale), int(g * scale), int(b * scale)
+    elif luma < 24:
+        r, g, b = (int(v * 0.4 + t * 0.6) for v, t in zip((r, g, b), (42, 45, 54)))
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
+def save_icon(data, dest):
+    """Validate, downscale and save one pulled icon; returns its tile colour."""
+    import io
+    from PIL import Image
+    with Image.open(io.BytesIO(data)) as image:
+        image = image.convert("RGBA")
+        image.thumbnail((256, 256))
+        out = io.BytesIO()
+        image.save(out, format="PNG")
+        mean = image.resize((1, 1)).getpixel((0, 0))
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_bytes(out.getvalue())
+    return tile_background(mean[:3])
+
+
+def run_catalog(args, model, profile):
+    """Regenerate launcher/assets/apps-installed.json from this TV. Read-only.
+
+    Ceiling: apps installed after this run stay invisible until it runs again,
+    and each icon costs one bounded root read; --icon-limit caps that."""
+    curated = curated_apps()
+    stdout = run_readonly_root(args, model, catalog_command(profile, curated_ids(curated)))
+    parsed = inventory.parse_sections(stdout)
+    rows = parse_app_rows(parsed.get("apps", ""))
+    if not rows:
+        raise RuntimeError("The registry returned no app rows; refusing to write an empty catalog.")
+    entries = build_entries(rows, curated)
+    print(f"Observed {len(rows)} usable rows; catalog keeps {len(entries)} apps.")
+    assets = ROOT / "launcher/assets/app-icons/installed"
+    with_icons = not args.no_icons
+    if with_icons:
+        try:
+            from PIL import Image  # noqa: F401
+        except ImportError:
+            with_icons = False
+            print("Pillow is unavailable; skipping icons (install it in a local venv to pull them).")
+    catalog_path = ROOT / "launcher/assets/apps-installed.json"
+    previous = {}
+    try:
+        for old in json.loads(catalog_path.read_text()):
+            if isinstance(old, dict) and isinstance(old.get("Id"), str):
+                previous[old["Id"]] = old
+    except (OSError, ValueError):
+        previous = {}
+    pulled = reused = 0
+    for entry in entries:
+        remote = entry.pop("Icon", "")
+        if not with_icons or pulled + reused >= args.icon_limit:
+            continue
+        safe = re.sub(r"[^A-Za-z0-9._-]", "-", entry["Id"])
+        dest = assets / f"{safe}.png"
+        # A previous run already paid for this icon; keep its tile colour too.
+        if dest.is_file() and dest.stat().st_size:
+            entry["Asset"] = f"app-icons/installed/{dest.name}"
+            if previous.get(entry["Id"], {}).get("Background"):
+                entry["Background"] = previous[entry["Id"]]["Background"]
+            reused += 1
+            continue
+        if not remote.startswith("/") or not remote.lower().endswith((".png", ".jpg", ".jpeg")):
+            continue
+        try:
+            data = decode_pull(run_readonly_root(args, model, pull_command(remote)))
+            entry["Background"] = save_icon(data, dest)
+            entry["Asset"] = f"app-icons/installed/{dest.name}"
+            pulled += 1
+        except Exception as error:
+            print(f"  icon skipped ({entry['Id']}): {error}")
+    catalog_path.write_text(json.dumps(entries, indent=2) + "\n")
+    print(f"Wrote {catalog_path.relative_to(ROOT)} ({len(entries)} apps, "
+          f"{pulled} icons pulled, {reused} reused).")
+    print("Review it, then rebuild: python3 tools/build.py all")
+    print("UID/EUID 0 verified; root staging cleaned; nothing on the TV was modified.")
+
+
 def main():
     os.umask(0o077)
     parser = argparse.ArgumentParser(description=__doc__)
@@ -299,6 +552,14 @@ def main():
         help="Read-only dump: draft profile under .local/inventory/; does not write profiles/",
     )
     inv.add_argument("--name", help="Override the inventory directory name under .local/inventory/")
+    cat = sub.add_parser(
+        "catalog",
+        help="Regenerate launcher/assets/apps-installed.json from this TV; read-only on the device",
+    )
+    cat.add_argument("--no-icons", action="store_true",
+                     help="Skip icon pulls; entries use the neutral tile")
+    cat.add_argument("--icon-limit", type=int, default=40,
+                     help="Maximum icons to pull, one bounded read each (default 40)")
     sub.add_parser("root-check", help="Temporarily obtain root and run id; no configuration changes")
     run = sub.add_parser("exec", help="Execute one reviewed command or short script using temporary root")
     source = run.add_mutually_exclusive_group(required=True)
@@ -366,6 +627,18 @@ def main():
             print(f"No end-to-end profile: {mismatch}")
             print("Continuing with a read-only inventory. Nothing will be written under profiles/.")
         run_inventory(args, model, profile, profile_path)
+        return
+    if args.action == "catalog":
+        assessment = _check_target(client)
+        print("Archive-route runtime family:", assessment.runtime)
+        profile_path, profile, mismatch = matched_profile(
+            profiles, model, args.firmware, args.profile, args.model)
+        if profile_path:
+            print(f"Profile: {profile_path.name} (model {profile['model']}, firmware {profile['firmware']})")
+        else:
+            print(f"No end-to-end profile: {mismatch}")
+            print("Continuing read-only; the catalog does not depend on cleanup groups.")
+        run_catalog(args, model, profile)
         return
     profile_path, profile = resolve_profile(profiles, model, args.firmware, args.profile, args.model)
     print(f"Profile: {profile_path.name} (model {profile['model']}, firmware {profile['firmware']}, "
