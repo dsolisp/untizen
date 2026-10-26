@@ -57,6 +57,40 @@ another panel's HDMI mapping. The library is read from `apps.json`; verify
 all app IDs against the TV. See [app configuration](06-artwork.md). Rebuild
 after source changes.
 
+## Two app lists: your apps and all apps
+
+The Apps page keeps two lists. **Your Apps** is the menu you curate; **All
+Apps** is everything the TV reports as installed. The launcher merges them at
+startup from two optional files next to `apps.json`:
+
+- `apps-installed.json` — the installed catalog, generated from the TV (below).
+  When it is absent the menu behaves exactly like the curated `apps.json`.
+- `/var/tmp/untizen-menu.json` — the hidden list (app IDs you removed from Your
+  Apps). It lives outside the package so toggling never rewrites resources.
+
+`MenuCatalog.Visible` puts curated entries first (skipping hidden ones and,
+when a catalog exists, curated apps that are not installed), then appends the
+remaining installed apps alphabetically. The Store/Utility tile always stays.
+An **All apps** tile at the end of Your Apps opens the full list; there, Select
+toggles an app's membership and a small accent dot marks apps already in Your
+Apps. Back returns to Your Apps.
+
+Generate the installed catalog from the TV's package registry (read-only):
+
+```sh
+tv catalog                      # writes launcher/assets/apps-installed.json
+tv catalog --no-icons           # skip pulling per-app icons
+```
+
+The command opens one read-only root session, dumps the registry schema and
+app IDs, pulls a bounded set of icons into
+`launcher/assets/app-icons/installed/`, and writes the catalog. Review the
+printed names before rebuilding; `humanize` only guesses a display name when
+the registry has no label column. Apps installed after the last `tv catalog`
+run stay invisible until you regenerate — that is the deliberate ceiling, and
+the upgrade path is a runtime registry read once permissions are confirmed.
+Rebuild and redeploy after regenerating.
+
 ## Install without changing Home yet
 
 The tested native-app container is **`com.samsung.tv.bixby-promotion`**.

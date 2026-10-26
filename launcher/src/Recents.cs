@@ -24,6 +24,7 @@ public static class StatePaths
  public const string StateOld="/tmp/quiet-home-state.txt";
  public const string BridgeNew="/tmp/untizen-bridge.txt";
  public const string BridgeOld="/tmp/quiet-home-bridge.txt";
+ public const string MenuNew="/var/tmp/untizen-menu.json";
  // Read the new path if it exists, else the quiet-home leftover, else write the new one.
  public static string Prefer(string newer,string older,Func<string,bool> exists)
  {

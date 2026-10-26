@@ -138,7 +138,7 @@ def decode_pull(stdout):
     return data
 
 
-ROOT_ACTIONS = {"root-check", "exec", "pull", "inventory"}
+ROOT_ACTIONS = {"root-check", "exec", "pull", "inventory", "catalog"}
 
 
 def require_callback_host(host, callback_host):
@@ -264,6 +264,173 @@ def print_profiles(profiles):
         print(f"{data['model']:<18} {data['firmware']:<28} {data.get('runtime','?'):<8} {len(groups)}")
 
 
+CATALOG_DENY = {
+    "com.samsung.tv.bixby-promotion",
+    "com.samsung.tv.quicklaunch",
+}
+ICON_COLUMNS = ("icon", "icon_path", "iconpath", "icon_file", "icon_uri")
+LABEL_COLUMNS = ("label", "name", "app_name", "display_name", "alias")
+
+
+def catalog_command(profile):
+    """The read-only registry dump behind `tv.py catalog`."""
+    script = (ROOT / "recipes/catalog.sh").read_bytes()
+    encoded = base64.b64encode(script).decode()
+    fallback = {
+        "container": inventory.DEFAULT_CONTAINER,
+        "settings_container": inventory.DEFAULT_SETTINGS_CONTAINER,
+        "registry": inventory.DEFAULT_REGISTRY,
+    }
+    return (
+        script_environment(profile or fallback)
+        + f"printf '%s' {shlex.quote(encoded)} | base64 -d | /bin/sh -s"
+    )
+
+
+def run_readonly_root(args, model, command, timeout=60):
+    """One read-only root command; same session guarantees as inventory."""
+    result = asyncio.run(probe(
+        args.host, model=model, callback_host=args.callback_host,
+        payloads=ROOT / ".local/build/payloads", commands=(command,), command_timeout=timeout,
+    ))
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
+    save_private(ROOT / ".local/sessions" / f"{stamp}.json",
+                 (json.dumps(result, indent=2) + "\n").encode())
+    if result.get("uid") != 0 or result.get("euid") != 0:
+        raise ValueError("The callback did not prove UID/EUID 0.")
+    if not result.get("system_files_unchanged") or not result.get("staging_cleaned"):
+        raise ValueError("Root session cleanup checks failed; inspect the private session log.")
+    response = result["commands"][0]
+    if response["stderr"]:
+        print(response["stderr"], file=sys.stderr, end="")
+    if response["exit_code"] or response["timed_out"]:
+        raise RuntimeError(
+            f"Catalog command failed ({response['exit_code']}, timeout={response['timed_out']}).")
+    return response["stdout"]
+
+
+def table_column(schema_text, table, wanted):
+    """First column of `table` whose name is in `wanted`; '' when absent."""
+    match = re.search(
+        r"CREATE TABLE (?:IF NOT EXISTS )?[\"'`\[]?" + re.escape(table) + r"[\"'`\]]?\s*\(([^;]*?)\)\s*;",
+        schema_text or "", re.S | re.I)
+    if not match:
+        return ""
+    for column in re.findall(r"[\"'`\[]?(\w+)[\"'`\]]?\s+\w", match.group(1)):
+        if column.lower() in wanted:
+            return column
+    return ""
+
+
+def registry_pairs(args, model, column):
+    """app_id -> column value for every row; one more read-only root command."""
+    query = f"SELECT app_id, {column} FROM package_app_info;"
+    stdout = run_readonly_root(
+        args, model,
+        f"sqlite3 -readonly {shlex.quote(inventory.DEFAULT_REGISTRY)} {shlex.quote(query)}")
+    pairs = {}
+    for line in stdout.splitlines():
+        if "|" in line:
+            key, value = line.split("|", 1)
+            if key.strip():
+                pairs[key.strip()] = value.strip()
+    return pairs
+
+
+def humanize(app_id):
+    """Best-effort display name when the registry has no label column."""
+    tail = re.split(r"[._]", app_id)[-1]
+    words = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", tail.replace("-", " ").replace("_", " "))
+    return words.strip() or app_id
+
+
+def build_entries(app_ids, labels, deny=CATALOG_DENY):
+    """Catalog rows sorted by display name; launcher containers stay out."""
+    entries = []
+    for app_id in app_ids:
+        if app_id in deny:
+            continue
+        entries.append({"Id": app_id, "Name": labels.get(app_id) or humanize(app_id)})
+    entries.sort(key=lambda entry: entry["Name"].lower())
+    return entries
+
+
+def tile_background(rgb):
+    """Tile colour from an icon's mean colour, clamped into a readable range."""
+    r, g, b = (max(0, min(255, int(value))) for value in rgb)
+    luma = 0.2126 * r + 0.7152 * g + 0.0722 * b
+    if luma > 86:
+        scale = 86 / luma
+        r, g, b = int(r * scale), int(g * scale), int(b * scale)
+    elif luma < 24:
+        r, g, b = (int(v * 0.4 + t * 0.6) for v, t in zip((r, g, b), (42, 45, 54)))
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
+def save_icon(data, dest):
+    """Validate, downscale and save one pulled icon; returns its tile colour."""
+    import io
+    from PIL import Image
+    with Image.open(io.BytesIO(data)) as image:
+        image = image.convert("RGBA")
+        image.thumbnail((256, 256))
+        out = io.BytesIO()
+        image.save(out, format="PNG")
+        mean = image.resize((1, 1)).getpixel((0, 0))
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_bytes(out.getvalue())
+    return tile_background(mean[:3])
+
+
+def run_catalog(args, model, profile):
+    """Regenerate launcher/assets/apps-installed.json from this TV. Read-only.
+
+    Ceiling: apps installed after this run stay invisible until it runs again,
+    and each icon costs one bounded root read; --icon-limit caps that."""
+    stdout = run_readonly_root(args, model, catalog_command(profile))
+    parsed = inventory.parse_sections(stdout)
+    app_ids = inventory.parse_app_ids(parsed.get("apps", ""))
+    if not app_ids:
+        raise RuntimeError("The registry returned no app IDs; refusing to write an empty catalog.")
+    schema = parsed.get("schema", "")
+    labels = {}
+    label_column = table_column(schema, "package_app_info", set(LABEL_COLUMNS))
+    if label_column:
+        labels = {k: v for k, v in registry_pairs(args, model, label_column).items() if v}
+    entries = build_entries(app_ids, labels)
+    print(f"Observed {len(app_ids)} app IDs; catalog keeps {len(entries)}.")
+    icon_column = "" if args.no_icons else table_column(schema, "package_app_info", set(ICON_COLUMNS))
+    icons = registry_pairs(args, model, icon_column) if icon_column else {}
+    if icons:
+        try:
+            from PIL import Image  # noqa: F401
+        except ImportError:
+            icons = {}
+            print("Pillow is unavailable; skipping icons (install it in a local venv to pull them).")
+    assets = ROOT / "launcher/assets/app-icons/installed"
+    pulled = 0
+    for entry in entries:
+        remote = icons.get(entry["Id"], "")
+        if pulled >= args.icon_limit:
+            break
+        if not remote.startswith("/") or not remote.lower().endswith((".png", ".jpg", ".jpeg")):
+            continue
+        safe = re.sub(r"[^A-Za-z0-9._-]", "-", entry["Id"])
+        dest = assets / f"{safe}.png"
+        try:
+            data = decode_pull(run_readonly_root(args, model, pull_command(remote)))
+            entry["Background"] = save_icon(data, dest)
+            entry["Asset"] = f"app-icons/installed/{dest.name}"
+            pulled += 1
+        except Exception as error:
+            print(f"  icon skipped ({entry['Id']}): {error}")
+    catalog_path = ROOT / "launcher/assets/apps-installed.json"
+    catalog_path.write_text(json.dumps(entries, indent=2) + "\n")
+    print(f"Wrote {catalog_path.relative_to(ROOT)} ({len(entries)} apps, {pulled} icons).")
+    print("Review it, then rebuild: python3 tools/build.py all")
+    print("UID/EUID 0 verified; root staging cleaned; nothing on the TV was modified.")
+
+
 def main():
     os.umask(0o077)
     parser = argparse.ArgumentParser(description=__doc__)
@@ -299,6 +466,14 @@ def main():
         help="Read-only dump: draft profile under .local/inventory/; does not write profiles/",
     )
     inv.add_argument("--name", help="Override the inventory directory name under .local/inventory/")
+    cat = sub.add_parser(
+        "catalog",
+        help="Regenerate launcher/assets/apps-installed.json from this TV; read-only on the device",
+    )
+    cat.add_argument("--no-icons", action="store_true",
+                     help="Skip icon pulls; entries use the neutral tile")
+    cat.add_argument("--icon-limit", type=int, default=40,
+                     help="Maximum icons to pull, one bounded read each (default 40)")
     sub.add_parser("root-check", help="Temporarily obtain root and run id; no configuration changes")
     run = sub.add_parser("exec", help="Execute one reviewed command or short script using temporary root")
     source = run.add_mutually_exclusive_group(required=True)
@@ -366,6 +541,18 @@ def main():
             print(f"No end-to-end profile: {mismatch}")
             print("Continuing with a read-only inventory. Nothing will be written under profiles/.")
         run_inventory(args, model, profile, profile_path)
+        return
+    if args.action == "catalog":
+        assessment = _check_target(client)
+        print("Archive-route runtime family:", assessment.runtime)
+        profile_path, profile, mismatch = matched_profile(
+            profiles, model, args.firmware, args.profile, args.model)
+        if profile_path:
+            print(f"Profile: {profile_path.name} (model {profile['model']}, firmware {profile['firmware']})")
+        else:
+            print(f"No end-to-end profile: {mismatch}")
+            print("Continuing read-only; the catalog does not depend on cleanup groups.")
+        run_catalog(args, model, profile)
         return
     profile_path, profile = resolve_profile(profiles, model, args.firmware, args.profile, args.model)
     print(f"Profile: {profile_path.name} (model {profile['model']}, firmware {profile['firmware']}, "

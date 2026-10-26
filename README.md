@@ -114,10 +114,11 @@ assign Home/startup.
 |---|---|
 | [Quiet Home source](launcher/src/Home.cs) | Native .NET/NUI home: HDMI cards, app library, quick settings, three themes |
 | [App catalog](launcher/assets/apps.json) | Netflix, YouTube, Prime Video, HBO Max, Disney+, Hulu, Spotify, Apple TV, Tubi, Luna and Xbox — real brand art, pure SVG paths |
+| [Two app lists](docs/04-launcher.md#two-app-lists-your-apps-and-all-apps) | Your Apps (curated) plus All Apps (everything installed); `tv catalog` regenerates the installed list from the TV, Select moves apps between them |
 | [Cleanup catalog](data/cleanup-groups.json) | Model-agnostic bloat groups as `app_id` globs, plus the `keep_active` invariants no group may match |
 | [Profiles](profiles) | Per-device facts: model, firmware, kernel, runtime, registry, launcher container, selected groups and overrides |
 | [Cleanup planner](tools/plan_cleanup.py) | Resolves the catalog against *your* snapshot and emits guarded apply/restore SQL |
-| [Access helper](tools/tv.py) | Profile-resolving SDB preflight, read-only `inventory`, temporary authenticated root, bounded transfers |
+| [Access helper](tools/tv.py) | Profile-resolving SDB preflight, read-only `inventory` and `catalog`, temporary authenticated root, bounded transfers |
 | [Device notes](docs/devices/README.md) | One-session inventories; not a substitute for an end-to-end profile |
 | [Showcase](SHOWCASE.md) | Ports, restyles and other-OS work that stay out of this tree |
 | [Recipes](recipes) | Inventory, snapshot, status, stop-marker, launcher, settings-bridge and restoration scripts |
