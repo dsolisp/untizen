@@ -66,5 +66,34 @@ class RoutingTests(unittest.TestCase):
         self.conn.rollback()
 
 
+class LauncherUpdateRecipeTests(unittest.TestCase):
+    """The update path must never overwrite a launcher without a rollback."""
+
+    def setUp(self):
+        self.text = (ROOT / "recipes/update-launcher.sh").read_text()
+
+    def test_it_only_updates_an_existing_launcher(self):
+        self.assertIn('test -d "$A/res/quiet-home"', self.text)
+
+    def test_it_refuses_unsafe_snapshot_names(self):
+        self.assertIn("*[!A-Za-z0-9_-]*", self.text)
+
+    def test_it_keeps_a_rollback_before_touching_files(self):
+        backup = self.text.index('update-previous/BixbyPromotion.dll')
+        first_copy = self.text.index('cp "$S/unpacked/BixbyPromotion.dll"')
+        self.assertLess(backup, first_copy)
+        self.assertIn("update-previous/quiet-home", self.text)
+
+    def test_it_reapplies_owner_and_label(self):
+        for fragment in ("chown 201:0", "chmod 644", "chsmack -a User::Pkg::"):
+            self.assertIn(fragment, self.text)
+
+    def test_it_verifies_the_archive_before_unpacking(self):
+        self.assertIn('test -s "$S/unpacked/BixbyPromotion.dll"', self.text)
+        self.assertIn('test -s "$S/unpacked/quiet-home/apps.json"', self.text)
+        for downloader in ("curl", "wget"):
+            self.assertNotIn(downloader, self.text)
+
+
 if __name__ == "__main__":
     unittest.main()

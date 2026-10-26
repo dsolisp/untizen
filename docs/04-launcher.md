@@ -114,6 +114,18 @@ moves the cached native image out of the execution path, installs resources,
 applies the package's observed SMACK label and requests a manual launch.
 It does not change Home/startup.
 
+`install-launcher.sh` refuses to run when `res/quiet-home` already exists. Every
+later change goes through the update path, which first copies the running
+assembly and resources to `update-previous/` inside the snapshot folder:
+
+```sh
+tv catalog                      # regenerate the installed list when apps changed
+python3 tools/build.py all
+tv push .local/package.tar.gz package.tar.gz
+tv exec --script recipes/update-launcher.sh --arg home-02
+tv exec --script recipes/status.sh   # the kill can drop the channel; confirm here
+```
+
 The new release recipes are a generalized form of the operations used on the
 original TV. Filesystem steps are not a single atomic transaction. If a step
 fails, inspect the saved state and use recovery; do not rerun by deleting

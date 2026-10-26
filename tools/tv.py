@@ -268,14 +268,102 @@ CATALOG_DENY = {
     "com.samsung.tv.bixby-promotion",
     "com.samsung.tv.quicklaunch",
 }
-ICON_COLUMNS = ("icon", "icon_path", "iconpath", "icon_file", "icon_uri")
-LABEL_COLUMNS = ("label", "name", "app_name", "display_name", "alias")
+# The registry separates store and sideloaded apps with app_package_system='false',
+# but Samsung OS components carry that flag too. These families are settings
+# panels, voice/Bixby plumbing, pairing and customer-service views, not tiles the
+# TV lists. Ceiling: a new OS family appears in All Apps until its prefix lands
+# here, or until the owner hides it with Select. Upgrade path: the TV's own
+# app-list query once its filter is known.
+CATALOG_DENY_PREFIXES = (
+    "com.samsung.tv.coba.",
+    "com.samsung.tv.cs",
+    "com.samsung.tv.quick",
+    "com.samsung.tv.cnvoice",
+    "com.samsung.tv.voice",
+    "com.samsung.tv.bixby",
+    "com.samsung.tv.mybixby",
+    "com.samsung.tv.aispeaker-",
+    "com.samsung.tv.autofill-",
+    "com.samsung.tv.cinemagraphapp",
+    "com.samsung.tv.rotation-",
+    "com.samsung.tv.buds-",
+    "com.samsung.tv.tvcamera-",
+    "com.samsung.tv.iotwidget-",
+    "com.samsung.tv.aov-",
+    "com.samsung.tv.accountnudge",
+    "com.samsung.tv.safcommonplugin",
+    "com.samsung.tv.stvirtualhomeapp",
+    "com.samsung.tv.securitycenter",
+    "com.samsung.tv.searchall",
+    "com.samsung.tv.multicontrolapp",
+    "com.samsung.tv.intelligent-action-",
+    "com.samsung.tv.ambientfte",
+    "com.samsung.tv.qsymphony",
+    "com.samsung.tv.remoteapp",
+    "com.samsung.tv.hmp-cn",
+    "com.samsung.tv.reminder",
+    "com.samsung.tv.samsungdex",
+    "com.samsung.tv.weather-viewer",
+    "com.samsung.selfdiagnosis",
+    "com.samsung.tv.easysetup-",
+    "com.samsung.tizen.",
+    "org.tizen.voice-",
+    "org.tizen.remotepc",
+)
+# `*-dummy` rows forward to the real app and never deserve a second tile.
+CATALOG_DENY_SUFFIXES = ("-dummy",)
 
 
-def catalog_command(profile):
+def parse_app_rows(section):
+    """`app_id|label|icon` lines from recipes/catalog.sh into (id, label, icon)."""
+    rows = []
+    for line in (section or "").splitlines():
+        parts = line.split("|")
+        if len(parts) < 3:
+            continue
+        app_id = parts[0].strip()
+        if not app_id or " " in app_id:
+            continue
+        rows.append((app_id, "|".join(parts[1:-1]).strip(), parts[-1].strip()))
+    return rows
+
+
+def is_usable(app_id, curated=False):
+    """A tile the owner can open. A curated id always survives unless it is denied."""
+    if app_id in CATALOG_DENY:
+        return False
+    if curated:
+        return True
+    if app_id.lower().endswith(CATALOG_DENY_SUFFIXES):
+        return False
+    return not app_id.lower().startswith(CATALOG_DENY_PREFIXES)
+
+
+def curated_apps(path=None):
+    """Curated entries from launcher/assets/apps.json as {Id, Name} pairs."""
+    source = Path(path) if path else ROOT / "launcher/assets/apps.json"
+    try:
+        entries = json.loads(source.read_text())
+    except (OSError, ValueError):
+        return []
+    if not isinstance(entries, list):
+        return []
+    return [{"Id": entry["Id"], "Name": entry.get("Name", "")} for entry in entries
+            if isinstance(entry, dict) and isinstance(entry.get("Id"), str)]
+
+
+def curated_ids(apps):
+    """Just the IDs, for the recipe's IN (...) list."""
+    return [entry["Id"] for entry in apps]
+
+
+def catalog_command(profile, curated=()):
     """The read-only registry dump behind `tv.py catalog`."""
-    script = (ROOT / "recipes/catalog.sh").read_bytes()
-    encoded = base64.b64encode(script).decode()
+    script = (ROOT / "recipes/catalog.sh").read_text()
+    quoted = ",".join("'" + app_id + "'" for app_id in curated
+                      if re.fullmatch(r"[A-Za-z0-9._-]{1,200}", app_id))
+    script = script.replace("__CURATED_IDS__", quoted or "''")
+    encoded = base64.b64encode(script.encode()).decode()
     fallback = {
         "container": inventory.DEFAULT_CONTAINER,
         "settings_container": inventory.DEFAULT_SETTINGS_CONTAINER,
@@ -309,48 +397,36 @@ def run_readonly_root(args, model, command, timeout=60):
     return response["stdout"]
 
 
-def table_column(schema_text, table, wanted):
-    """First column of `table` whose name is in `wanted`; '' when absent."""
-    match = re.search(
-        r"CREATE TABLE (?:IF NOT EXISTS )?[\"'`\[]?" + re.escape(table) + r"[\"'`\]]?\s*\(([^;]*?)\)\s*;",
-        schema_text or "", re.S | re.I)
-    if not match:
-        return ""
-    for column in re.findall(r"[\"'`\[]?(\w+)[\"'`\]]?\s+\w", match.group(1)):
-        if column.lower() in wanted:
-            return column
-    return ""
-
-
-def registry_pairs(args, model, column):
-    """app_id -> column value for every row; one more read-only root command."""
-    query = f"SELECT app_id, {column} FROM package_app_info;"
-    stdout = run_readonly_root(
-        args, model,
-        f"sqlite3 -readonly {shlex.quote(inventory.DEFAULT_REGISTRY)} {shlex.quote(query)}")
-    pairs = {}
-    for line in stdout.splitlines():
-        if "|" in line:
-            key, value = line.split("|", 1)
-            if key.strip():
-                pairs[key.strip()] = value.strip()
-    return pairs
-
-
 def humanize(app_id):
-    """Best-effort display name when the registry has no label column."""
+    """Best-effort display name when the registry has no label."""
     tail = re.split(r"[._]", app_id)[-1]
     words = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", tail.replace("-", " ").replace("_", " "))
     return words.strip() or app_id
 
 
-def build_entries(app_ids, labels, deny=CATALOG_DENY):
-    """Catalog rows sorted by display name; launcher containers stay out."""
-    entries = []
-    for app_id in app_ids:
-        if app_id in deny:
+def build_entries(rows, curated=()):
+    """Catalog entries sorted by display name.
+
+    Unusable rows and repeated IDs drop. Two names collide on this panel
+    (YouTube ships as a system wrapper plus the store app, and two rows are
+    called "Apps"), so one tile per display name survives, curated first and
+    then the lexicographically smaller id for a stable result."""
+    keep_ids = {entry["Id"] for entry in curated}
+    preferred = [row for row in rows if row[0] in keep_ids]
+    rest = sorted((row for row in rows if row[0] not in keep_ids), key=lambda row: row[0])
+    entries, seen_ids, seen_names = [], set(), set()
+    for app_id, label, icon in preferred + rest:
+        if app_id in seen_ids or not is_usable(app_id, app_id in keep_ids):
             continue
-        entries.append({"Id": app_id, "Name": labels.get(app_id) or humanize(app_id)})
+        name = label or humanize(app_id)
+        if name.lower() in seen_names:
+            continue
+        seen_ids.add(app_id)
+        seen_names.add(name.lower())
+        entry = {"Id": app_id, "Name": name}
+        if icon:
+            entry["Icon"] = icon
+        entries.append(entry)
     entries.sort(key=lambda entry: entry["Name"].lower())
     return entries
 
@@ -387,36 +463,46 @@ def run_catalog(args, model, profile):
 
     Ceiling: apps installed after this run stay invisible until it runs again,
     and each icon costs one bounded root read; --icon-limit caps that."""
-    stdout = run_readonly_root(args, model, catalog_command(profile))
+    curated = curated_apps()
+    stdout = run_readonly_root(args, model, catalog_command(profile, curated_ids(curated)))
     parsed = inventory.parse_sections(stdout)
-    app_ids = inventory.parse_app_ids(parsed.get("apps", ""))
-    if not app_ids:
-        raise RuntimeError("The registry returned no app IDs; refusing to write an empty catalog.")
-    schema = parsed.get("schema", "")
-    labels = {}
-    label_column = table_column(schema, "package_app_info", set(LABEL_COLUMNS))
-    if label_column:
-        labels = {k: v for k, v in registry_pairs(args, model, label_column).items() if v}
-    entries = build_entries(app_ids, labels)
-    print(f"Observed {len(app_ids)} app IDs; catalog keeps {len(entries)}.")
-    icon_column = "" if args.no_icons else table_column(schema, "package_app_info", set(ICON_COLUMNS))
-    icons = registry_pairs(args, model, icon_column) if icon_column else {}
-    if icons:
+    rows = parse_app_rows(parsed.get("apps", ""))
+    if not rows:
+        raise RuntimeError("The registry returned no app rows; refusing to write an empty catalog.")
+    entries = build_entries(rows, curated)
+    print(f"Observed {len(rows)} usable rows; catalog keeps {len(entries)} apps.")
+    assets = ROOT / "launcher/assets/app-icons/installed"
+    with_icons = not args.no_icons
+    if with_icons:
         try:
             from PIL import Image  # noqa: F401
         except ImportError:
-            icons = {}
+            with_icons = False
             print("Pillow is unavailable; skipping icons (install it in a local venv to pull them).")
-    assets = ROOT / "launcher/assets/app-icons/installed"
-    pulled = 0
+    catalog_path = ROOT / "launcher/assets/apps-installed.json"
+    previous = {}
+    try:
+        for old in json.loads(catalog_path.read_text()):
+            if isinstance(old, dict) and isinstance(old.get("Id"), str):
+                previous[old["Id"]] = old
+    except (OSError, ValueError):
+        previous = {}
+    pulled = reused = 0
     for entry in entries:
-        remote = icons.get(entry["Id"], "")
-        if pulled >= args.icon_limit:
-            break
-        if not remote.startswith("/") or not remote.lower().endswith((".png", ".jpg", ".jpeg")):
+        remote = entry.pop("Icon", "")
+        if not with_icons or pulled + reused >= args.icon_limit:
             continue
         safe = re.sub(r"[^A-Za-z0-9._-]", "-", entry["Id"])
         dest = assets / f"{safe}.png"
+        # A previous run already paid for this icon; keep its tile colour too.
+        if dest.is_file() and dest.stat().st_size:
+            entry["Asset"] = f"app-icons/installed/{dest.name}"
+            if previous.get(entry["Id"], {}).get("Background"):
+                entry["Background"] = previous[entry["Id"]]["Background"]
+            reused += 1
+            continue
+        if not remote.startswith("/") or not remote.lower().endswith((".png", ".jpg", ".jpeg")):
+            continue
         try:
             data = decode_pull(run_readonly_root(args, model, pull_command(remote)))
             entry["Background"] = save_icon(data, dest)
@@ -424,9 +510,9 @@ def run_catalog(args, model, profile):
             pulled += 1
         except Exception as error:
             print(f"  icon skipped ({entry['Id']}): {error}")
-    catalog_path = ROOT / "launcher/assets/apps-installed.json"
     catalog_path.write_text(json.dumps(entries, indent=2) + "\n")
-    print(f"Wrote {catalog_path.relative_to(ROOT)} ({len(entries)} apps, {pulled} icons).")
+    print(f"Wrote {catalog_path.relative_to(ROOT)} ({len(entries)} apps, "
+          f"{pulled} icons pulled, {reused} reused).")
     print("Review it, then rebuild: python3 tools/build.py all")
     print("UID/EUID 0 verified; root staging cleaned; nothing on the TV was modified.")
 

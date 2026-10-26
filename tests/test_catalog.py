@@ -1,24 +1,27 @@
 from pathlib import Path
+import base64
+import re
 import sys
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 try:
-    from PIL import Image
+    from PIL import Image  # noqa: F401
     HAVE_PIL = True
 except ImportError:
     HAVE_PIL = False
 
-from tv import (build_entries, catalog_command, humanize, save_icon,
-                table_column, tile_background, CATALOG_DENY, ICON_COLUMNS,
-                LABEL_COLUMNS)
+from tv import (CATALOG_DENY, build_entries, catalog_command, curated_apps,
+                curated_ids, humanize, is_usable, parse_app_rows, save_icon,
+                tile_background)
 
-SCHEMA = (
-    'CREATE TABLE package_info (pkg_id VARCHAR(255), version TEXT);\n'
-    'CREATE TABLE package_app_info (app_id VARCHAR(255) PRIMARY KEY, '
-    'pkg_id VARCHAR(255), label TEXT, icon_path VARCHAR(255), noupdate INT);\n'
-)
+
+def decode_recipe(command):
+    """The base64 payload `catalog_command` pipes into /bin/sh."""
+    match = re.search(r"printf '%s' (\S+) \| base64 -d", command)
+    assert match, command
+    return base64.b64decode(match.group(1)).decode()
 
 
 class CatalogToolTests(unittest.TestCase):
@@ -29,17 +32,54 @@ class CatalogToolTests(unittest.TestCase):
         self.assertNotIn("rm ", text)
         self.assertIn('test "$(id -u)" = 0', text)
 
+    def test_recipe_filters_to_user_apps(self):
+        text = (ROOT / "recipes/catalog.sh").read_text()
+        self.assertIn("app_package_system='false'", text)
+        self.assertIn("component_type='uiapp'", text)
+        self.assertIn("__CURATED_IDS__", text)
+
     def test_catalog_command_embeds_recipe(self):
         command = catalog_command(None)
         self.assertIn("UNTIZEN_REGISTRY", command)
         self.assertIn("base64 -d | /bin/sh -s", command)
+        self.assertIn("IN (''", decode_recipe(command))
 
-    def test_table_column_detection(self):
-        self.assertEqual(table_column(SCHEMA, "package_app_info", set(LABEL_COLUMNS)), "label")
-        self.assertEqual(table_column(SCHEMA, "package_app_info", set(ICON_COLUMNS)), "icon_path")
-        self.assertEqual(table_column(SCHEMA, "package_info", set(ICON_COLUMNS)), "")
-        self.assertEqual(table_column(SCHEMA, "missing", set(ICON_COLUMNS)), "")
-        self.assertEqual(table_column("", "package_app_info", set(LABEL_COLUMNS)), "")
+    def test_catalog_command_quotes_curated_ids(self):
+        recipe = decode_recipe(catalog_command(None, ["a.app", "b.app"]))
+        self.assertIn("IN ('a.app','b.app')", recipe)
+        # Anything that is not a plain app id never reaches the SQL.
+        recipe = decode_recipe(catalog_command(None, ["ok.app", "bad'; drop", ""]))
+        self.assertIn("IN ('ok.app')", recipe)
+        self.assertNotIn("drop", recipe)
+
+    def test_parse_app_rows(self):
+        rows = parse_app_rows("a.app|Netflix|/opt/a/icon.png\nb.app||\n\nbroken line\n")
+        self.assertEqual(rows, [("a.app", "Netflix", "/opt/a/icon.png"), ("b.app", "", "")])
+
+    def test_is_usable(self):
+        self.assertFalse(is_usable("com.samsung.tv.quickpanel"))
+        self.assertFalse(is_usable("com.samsung.tv.coba.newhome"))
+        self.assertFalse(is_usable("org.tizen.primevideo-dummy"))
+        self.assertTrue(is_usable("OGLLvqej7u.CrunchyrollWebApp"))
+        self.assertTrue(is_usable("rKpKZvmSog.IPTVSmartersPro"))
+        # Curated ids survive the vendor prefix filter but never the hard deny.
+        self.assertTrue(is_usable("com.samsung.tv.cobalt-yt", curated=True))
+        for denied in CATALOG_DENY:
+            self.assertFalse(is_usable(denied, curated=True))
+
+    def test_curated_apps_reads_repo_catalog(self):
+        apps = curated_apps()
+        self.assertIn("org.tizen.netflix-app", curated_ids(apps))
+        self.assertTrue(any(entry.get("Name") for entry in apps))
+        self.assertEqual(curated_apps(ROOT / ".local/missing.json"), [])
+
+    def test_prefix_deny_ignores_case(self):
+        self.assertFalse(is_usable("com.samsung.tv.CSAccount"))
+        self.assertFalse(is_usable("com.samsung.tv.CSBilling"))
+        self.assertFalse(is_usable("com.samsung.tv.SecurityCenter"))
+        self.assertFalse(is_usable("com.samsung.SelfDiagnosis"))
+        self.assertFalse(is_usable("com.samsung.tv.CinemaGraphApp"))
+        self.assertFalse(is_usable("com.samsung.tv.MultiControlApp"))
 
     def test_humanize(self):
         self.assertEqual(humanize("com.liteweb.iptvsmarterspro"), "iptvsmarterspro")
@@ -47,12 +87,37 @@ class CatalogToolTests(unittest.TestCase):
         self.assertEqual(humanize("Crunchyroll"), "Crunchyroll")
 
     def test_build_entries(self):
-        ids = list(CATALOG_DENY) + ["b.app", "a.app"]
-        entries = build_entries(ids, {"a.app": "Zed"})
-        # Sorted by display name, not by id: "app" (b.app) precedes "Zed" (a.app).
-        self.assertEqual([entry["Id"] for entry in entries], ["b.app", "a.app"])
-        self.assertEqual(entries[0]["Name"], "app")
-        self.assertEqual(entries[1]["Name"], "Zed")
+        rows = [(denied, "Denied", "") for denied in CATALOG_DENY]
+        rows += [
+            ("a.app", "Zed", "/icons/a.png"),
+            ("b.app", "", ""),
+            ("a.app", "Duplicate", ""),
+            ("c.app", "Crunchyroll", ""),
+            ("org.tizen.primevideo-dummy", "Prime Video", ""),
+        ]
+        entries = build_entries(rows)
+        # Sorted by display name, de-duplicated by id, deny list and dummies dropped.
+        self.assertEqual([entry["Id"] for entry in entries], ["b.app", "c.app", "a.app"])
+        self.assertEqual([entry["Name"] for entry in entries], ["app", "Crunchyroll", "Zed"])
+        self.assertEqual(entries[-1]["Icon"], "/icons/a.png")
+        self.assertNotIn("Icon", build_entries([("x.app", "X", "")])[0])
+
+    def test_non_curated_duplicate_name_drops(self):
+        curated = [{"Id": "com.samsung.tv.cobalt-yt", "Name": "Youtube"}]
+        rows = [("com.samsung.tv.cobalt-yt", "Youtube", ""),
+                ("9Ur5IzDKqV.TizenYouTube", "YouTube", "")]
+        entries = build_entries(rows, curated)
+        self.assertEqual([entry["Id"] for entry in entries], ["com.samsung.tv.cobalt-yt"])
+
+    def test_duplicate_names_keep_one_stable_tile(self):
+        rows = [("org.volt.apps", "Apps", ""), ("com.samsung.tv.store", "Apps", "")]
+        entries = build_entries(rows)
+        self.assertEqual([entry["Id"] for entry in entries], ["com.samsung.tv.store"])
+
+    def test_build_entries_keeps_curated_system_app(self):
+        entries = build_entries([("com.samsung.tv.cobalt-yt", "YouTube", "")],
+                                [{"Id": "com.samsung.tv.cobalt-yt", "Name": "Youtube"}])
+        self.assertEqual([entry["Id"] for entry in entries], ["com.samsung.tv.cobalt-yt"])
 
     def test_tile_background_clamps(self):
         self.assertEqual(tile_background((255, 255, 255)), "#565656")
