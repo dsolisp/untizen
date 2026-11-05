@@ -85,6 +85,44 @@ tv exec --script .local/plans/advertising-01/apply.sh
 This updates only the registry flags. It does not terminate existing
 processes, set preferences or install service stop conditions.
 
+## Uninstall an application package
+
+Disabling an app record keeps the package on the store list and reuses its
+storage. When an owner wants a package gone, `pkgcmd` can uninstall it. The
+launcher offers no delete gesture for sideloaded or root-registered apps, so
+[recipes/uninstall-app.sh](../recipes/uninstall-app.sh) is the recipe.
+
+```sh
+tv exec --script recipes/uninstall-app.sh --arg list
+```
+
+`list` prints the packages that are removable, not system and not preloaded,
+plus `MONTADO` next to any package whose widget is currently loop-mounted. That
+mount is the live app container, so the row is a hard protect: on this TV the
+Smarters package hosts Marea TV's `res/wgt`, and deleting it would delete the
+project. The guard reads `/sys/block/loop*/loop/backing_file` rather than the
+`.tmg` name, because almost every store app ships a `res/*.tmg` too.
+
+Then uninstall exactly one package, with a snapshot taken first:
+
+```sh
+tv exec --script recipes/snapshot.sh --arg uninstall-01
+tv exec --script recipes/uninstall-app.sh --arg <package> --arg confirm
+```
+
+The second argument must be the literal `confirm`; the package name is
+whitelisted to `[A-Za-z0-9_.-]`; the container in the profile `container` and
+`settings_container` keys is refused. The recipe calls `pkgcmd -u -n` and
+re-queries `package_info` instead of deleting directories by hand, so a failed
+uninstall reports the running processes rather than leaving a half-removed
+registry row. Restart the TV and rebuild the launcher afterwards: a removed
+package can still be referenced by the home catalog.
+
+Uninstalling is not reversible by restoring a registry snapshot: the package
+files are gone. Reinstall from the store, or with `pkgcmd -i` for a `.wgt` you
+still hold. Start with the apps the owner named; do not bulk-remove from the
+list.
+
 ## Prevent selected services from starting
 
 The vendor units on this build have stop-file conditions. Use the profile's
