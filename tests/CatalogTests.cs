@@ -136,7 +136,36 @@ static class CatalogTests
             Equal(0, MenuState.Load(menuTmp).Count, "corrupt menu state starts empty");
         }
         finally { File.Delete(menuTmp); }
-        Console.WriteLine("Catalog, navigation, invalid-input, recents and menu checks passed.");
+        // The grid closes with system doors, not apps: this launcher owns Home,
+        // so Samsung's own shell has to stay reachable or App Settings (where
+        // the developer-mode code is typed) cannot be opened at all.
+        Equal(12, AppLibrary.TileCount(10, 1), "catalog adds All apps and Samsung home");
+        Equal(11, AppLibrary.TileCount(10, 0), "without a catalog Samsung home still closes the grid");
+        Equal(11, AppLibrary.Move(12, 10, "Right"), "focus reaches the Samsung home tile");
+        if (!AppLibrary.IsAllAppsTile(10, 10, 1)) throw new Exception("All apps follows the curated list");
+        if (!AppLibrary.IsStockHomeTile(11, 10, 1)) throw new Exception("Samsung home closes the grid");
+        if (AppLibrary.IsStockHomeTile(10, 10, 1)) throw new Exception("Samsung home never replaces All apps");
+        if (!AppLibrary.IsStockHomeTile(10, 10, 0)) throw new Exception("Samsung home takes the free slot without a catalog");
+        if (AppLibrary.IsAllAppsTile(10, 10, 0)) throw new Exception("All apps needs a catalog");
+        if (AppLibrary.IsStockHomeTile(9, 10, 1)) throw new Exception("apps keep every index below the doors");
+        if (AppLibrary.StockHomeAppId != "com.samsung.tv.csfs") throw new Exception("stock home id moved");
+        // Artwork stays inside its card. ScaleToFill grows the source past the
+        // view instead of cutting it, so "cover" only survives with a source
+        // region carrying the card's own ratio: a square logo in a 16:9 card
+        // trims top and bottom, a wide wordmark trims the sides.
+        var square = AppLibrary.CoverCrop(512, 512, 328, 184);
+        if (square == null || square[0] != 0f || square[2] != 1f) throw new Exception("a square keeps the full card width");
+        if (Math.Abs(square[3] - 184f / 328f) > 0.001f) throw new Exception("the crop matches the card ratio");
+        if (Math.Abs(square[1] + square[3] / 2f - 0.5f) > 0.001f) throw new Exception("the vertical trim stays centred");
+        var wide = AppLibrary.CoverCrop(846, 266, 328, 184);
+        if (wide == null || wide[1] != 0f || wide[3] != 1f) throw new Exception("a wide logo keeps the full card height");
+        if (Math.Abs(wide[0] + wide[2] / 2f - 0.5f) > 0.001f) throw new Exception("the side trim stays centred");
+        if (AppLibrary.CoverCrop(1920, 1080, 328, 184) != null) throw new Exception("matching ratios need no crop");
+        if (AppLibrary.CoverCrop(0, 512, 328, 184) != null) throw new Exception("an undeclared art size yields no crop");
+        if (AppLibrary.CoverCrop(512, 512, 0, 184) != null) throw new Exception("an empty card yields no crop");
+        foreach (var crop in new[] { square, wide })
+            if (crop[0] + crop[2] > 1.0001f || crop[1] + crop[3] > 1.0001f) throw new Exception("the crop escapes the source");
+        Console.WriteLine("Catalog, navigation, invalid-input, recents, menu, system-door and artwork checks passed.");
         return 0;
     }
 }

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -25,12 +26,47 @@ public static class StatePaths
  public const string BridgeNew="/tmp/untizen-bridge.txt";
  public const string BridgeOld="/tmp/quiet-home-bridge.txt";
  public const string MenuNew="/var/tmp/untizen-menu.json";
+ public const string BootLogNew="/var/tmp/untizen-boot.log";
  // Read the new path if it exists, else the quiet-home leftover, else write the new one.
  public static string Prefer(string newer,string older,Func<string,bool> exists)
  {
   if(exists(newer))return newer;
   if(exists(older))return older;
   return newer;
+ }
+}
+
+// Newest-first diary of the launcher's own lifecycle. /var/tmp keeps its contents
+// across a power cut and /tmp does not, so this is the only record of what a cold boot
+// actually did to Quiet Home. Ceiling: the last 200 events; it is a boot diary, not a
+// usage history, and it is never read back.
+public static class BootLog
+{
+ public static void Line(string note)
+ {
+  try{
+   var now=DateTime.UtcNow;
+   var lines=new List<string>{now.ToString("yyyy-MM-ddTHH:mm:ss")+now.ToString("zzz",CultureInfo.InvariantCulture)+" up="+Uptime().ToString("0",CultureInfo.InvariantCulture)+"s pid="+Environment.ProcessId+" "+note};
+   if(File.Exists(StatePaths.BootLogNew))lines.AddRange(File.ReadAllLines(StatePaths.BootLogNew));
+   File.WriteAllLines(StatePaths.BootLogNew,lines.Take(200));
+  }catch{}
+ }
+ public static double Uptime()
+ {
+  try{return double.Parse(File.ReadAllText("/proc/uptime").Split(' ')[0],CultureInfo.InvariantCulture);}catch{return -1;}
+ }
+ // The vendor launch style rides inside our own command line. A home app that the boot
+ // unit started as a background preload has a process and no screen to paint.
+ public static string LaunchFlags()
+ {
+  try{
+   var raw=File.ReadAllText("/proc/self/cmdline").Replace('\0',' ');
+   var flags=new List<string>();
+   if(raw.Contains("__K_BG_LAUNCH"))flags.Add("bg-launch");
+   if(raw.Contains("launch_type"))flags.Add("launch_type");
+   if(raw.Contains("--standalone"))flags.Add("standalone");
+   return flags.Count==0?"foreground-launch":string.Join("+",flags);
+  }catch{return "launch-style-unknown";}
  }
 }
 

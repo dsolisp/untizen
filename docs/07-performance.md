@@ -52,6 +52,42 @@ not a direct measurement of dedicated GPU VRAM.
 The memory result and visible process changes are evidence for reduced
 background pressure, not proof of a completed latency repair.
 
+## Quiet Home power-on on the QN85C: what the numbers said
+
+The owner reported the new home screen felt slow right after power-on. The
+launcher was not the cost: `/tmp/untizen-state.txt` measured `build_ms=24` with
+all 43 artwork images ready, 39 catalogue entries and no load error, on a
+process that lived from the first seconds of boot at 0.6% CPU and 36 MB.
+
+Everything around it was the cost, read at ~19 minutes of uptime:
+
+| Measurement | Value |
+|---|---|
+| Load average on 4 cores | 7.9 / 8.1 / 6.4, still climbing at 240 s and never settling |
+| MemAvailable | 410-460 MB of 1,817 MB |
+| Swap | 1,020 MB of 1,181 MB used, only ~160 MB free |
+| Paging | `pswpin` rising ~20,000 pages per minute, 235,764 major faults, `kswapd0` resident |
+| Resident .NET app processes | 11, 362 MB RSS combined |
+| `org.tizen.art-app` (Art Store) | 28-32% CPU sustained, 46 threads, 43 MB RSS plus 70 MB swapped, live sockets to three external hosts |
+| `ffv-service` (far-field voice) | 16-17% CPU sustained; owner keeps voice, so it stayed |
+
+That is a memory-bound boot paging on eMMC, not a slow scene build. Both web-app
+preload preferences were back on after the previous cleanup, exactly as
+[the preference note](03-cleanup.md#preferences-and-the-web-app-preload-cache)
+warns, and 347 registry records still carry `app_preload=true`.
+
+Applied from a fresh `boot-slow-01` snapshot: the `art-store` and `light-shell`
+groups (8 IDs), the graceful close of the four still-running processes, and
+both web-app preload preferences set to `false`. Within a minute, MemAvailable
+went 456 to 529 MB and SwapFree 137 to 294 MB. **No cold-boot comparison has
+been taken yet**, so the power-on claim stays unproven until the TV is powered
+off with the remote and measured from uptime zero.
+
+Ceiling: the Samsung catalog refresh restores both preload preferences, and
+`app_preload=true` still sits on 347 registry records here. Turning that count
+down would need a planner field the tool does not touch yet, not another
+hand-written UPDATE.
+
 ## Reproduce a useful diagnosis
 
 1. Record what is slow: opening, D-pad response, playback or all of them.

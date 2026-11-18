@@ -15,6 +15,16 @@ Optional normalized `Crop` values are `[x,y,width,height]`. Paths must stay
 within the resource directory. The “Get more apps” utility tile draws a
 centered plus symbol; its regular caption remains below the card.
 
+`Fit` decides how the art meets the card, and no mode may paint over the card
+edge. `contain` keeps a padded margin, `contain-full` shrinks the art to the
+card and is the honest choice for a square logo with a wordmark, `cover` fills
+the card. NUI has no fill-without-overflow mode, so `cover` asks
+`AppLibrary.CoverCrop` for the centred source region that already has the card
+ratio and trims the excess. A wide banner loses its sides, a tall logo loses
+top and bottom. When the source dimensions are missing, or the ratios already
+match, there is nothing to trim and the art shrinks inside the card instead. A
+declared `Crop` is used as authored, so it must carry the card ratio itself.
+
 ## Optional publisher artwork
 
 The public repository ships path-only SVG brand cards in

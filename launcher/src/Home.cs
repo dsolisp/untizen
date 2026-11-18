@@ -49,6 +49,7 @@ public sealed class QuietHome : NUIApplication
  Animation focusAnimation;
  bool fontLoaded;
  Tizen.NUI.Timer clockTimer;
+ Tizen.NUI.Timer firstPaint;bool lifecycleSeen;int paintTries;
  int page, selected, area=1, lastSource=14;
  string editing="";
  long buildMilliseconds;
@@ -101,10 +102,51 @@ public sealed class QuietHome : NUIApplication
   RefreshSource();selected=0;BuildPage();
   clockTimer=new Tizen.NUI.Timer(30000);
   clockTimer.Tick+=(s,e)=>{if(clock!=null)clock.Text=DateTime.Now.ToString("h:mm tt");return true;};clockTimer.Start();WriteState("created");
+  BootLog.Line("home created "+BootLog.LaunchFlags()+" visible="+Window.Default.IsVisible()+" library="+library.Count+"+"+installed.Count);
+  ArmFirstPaint();
  }
- protected override void OnResume(){base.OnResume();clockTimer?.Start();RefreshSource();if(tabs!=null&&page==0&&(recentsDirty||homeSource!=lastSource)){area=1;selected=0;BuildPage();}if(tabs!=null&&page==2){RefreshSettings();UpdateFocus(false);}WriteState("resumed");}
+ protected override void OnResume(){base.OnResume();lifecycleSeen=true;BootLog.Line("home resumed visible="+Window.Default.IsVisible());clockTimer?.Start();RefreshSource();if(tabs!=null&&page==0&&(recentsDirty||homeSource!=lastSource)){area=1;selected=0;BuildPage();}if(tabs!=null&&page==2){RefreshSettings();UpdateFocus(false);}WriteState("resumed");}
  protected override void OnAppControlReceived(AppControlReceivedEventArgs e){base.OnAppControlReceived(e);string requested; if(e.ReceivedAppControl.ExtraData.TryGet("quiet_page",out requested)&&requested=="settings")OpenSettings("settings_request");else if(requested=="apps"){page=1;allView=false;area=1;selected=0;BuildPage();}else Home("home_request");}
- protected override void OnPause(){base.OnPause();editing="";clockTimer?.Stop();WriteState("paused");}
+ protected override void OnPause(){base.OnPause();lifecycleSeen=true;BootLog.Line("home paused");editing="";clockTimer?.Stop();WriteState("paused");}
+ // A cold boot can start Quiet Home and never map its window: the panel stays black until
+ // the remote's Home key sends the launch request that raises the running instance. Measured
+ // on the QN85C on 2026-11-17, the boot unit starts this app as a background preload
+ // (`bg-launch` in the created line), so nothing ever asks it to paint, and NUI still reports
+ // its own window visible while the compositor shows another app. Show/Raise/Activate alone
+ // changed nothing in that trace; the launch request was what earned a resume 29 s into the
+ // boot. So send that request to ourselves, the same one the Home key sends, as soon as we
+ // exist, and stop the moment the app manager tells us anything about our lifecycle. An app
+ // the firmware genuinely put in front pauses us first, and then the launcher keeps its hands
+ // off the foreground. Ceiling: the process is not started until roughly 20 s after power-on,
+ // which is the boot unit's decision and not this app's, so the screen cannot be earlier than
+ // that from here; a standby that kept this process alive also would not re-arm, and the
+ // upgrade path for that is to re-arm on the panel's wake key.
+ void ArmFirstPaint()
+ {
+  firstPaint=new Tizen.NUI.Timer(1200);
+  firstPaint.Tick+=(s,e)=>
+  {
+   paintTries++;
+   if(lifecycleSeen||paintTries>12||BootLog.Uptime()>60){firstPaint=null;return false;}
+   bool wasVisible=Window.Default.IsVisible();
+   Window.Default.Show();Window.Default.Raise();Window.Default.Activate();
+   BootLog.Line("home paint-nudge "+paintTries+" visible="+wasVisible+"->"+Window.Default.IsVisible()+" raise="+RaiseOwnWindow());
+   return true;
+  };
+  firstPaint.Start();
+ }
+ // The Home-key route: a default launch request for our own app id, which the window
+ // manager answers by raising the running instance and calling OnAppControlReceived.
+ int RaiseOwnWindow()
+ {
+  IntPtr c;int r=app_control_create(out c);if(r!=0)return r;
+  try{
+   r=app_control_set_app_id(c,"com.samsung.tv.bixby-promotion");
+   if(r==0)r=app_control_set_operation(c,"http://tizen.org/appcontrol/operation/default");
+   if(r==0)r=app_control_send_launch_request(c,IntPtr.Zero,IntPtr.Zero);
+   return r;
+  }finally{app_control_destroy(c);}
+ }
  void Home(string activity){clockTimer?.Start();RefreshSource();if(tabs!=null){bool unchanged=page==0&&area==1&&editing==""&&selected==0&&!recentsDirty&&homeSource==lastSource&&!allView;page=0;area=1;editing="";selected=0;allView=false;if(!unchanged)BuildPage();WriteState(activity);}}
  void OpenSettings(string activity){clockTimer?.Start();page=2;area=1;selected=0;editing="";BuildPage();WriteState(activity);}
  static string DiscoverRoot()
@@ -201,7 +243,7 @@ public sealed class QuietHome : NUIApplication
   selected=Math.Max(0,Math.Min(selected,slots.Count-1));UpdateFocus(false);
   buildMilliseconds=stopwatch.ElapsedMilliseconds;WriteState("page_ready");
  }
- int LibraryTileCount(){return allView?allApps.Count:library.Count+(installed.Count>0?1:0);}
+ int LibraryTileCount(){return allView?allApps.Count:AppLibrary.TileCount(library.Count,installed.Count);}
  void BuildLibrary()
  {
   allApps=allView?MenuCatalog.All(installed,curated):new List<LibraryApp>();
@@ -212,21 +254,24 @@ public sealed class QuietHome : NUIApplication
   int start=pageNow*AppLibrary.PageSize,visible=AppLibrary.VisibleCount(count,pageNow);
   for(int i=0;i<visible;i++)
   {
-   int index=start+i;bool allTile=!allView&&index>=library.Count;
-   var app=allTile?null:allView?allApps[index]:library[index];
+   int index=start+i;
+   bool allTile=!allView&&AppLibrary.IsAllAppsTile(index,library.Count,installed.Count);
+   bool stockHome=!allView&&AppLibrary.IsStockHomeTile(index,library.Count,installed.Count);
+   bool door=allTile||stockHome;
+   var app=door?null:allView?allApps[index]:library[index];
    int x=80+(i%5)*358,y=266+(i/5)*245,w=328,h=184;
    var shadow=Panel(x-5,y+7,w+10,h+8,new Color(.12f,.15f,.25f,.08f),22);
-   var card=Panel(x+w/2,y+h/2,w,h,allTile?theme.CardBg:HexColor(app.Background),18);
+   var card=Panel(x+w/2,y+h/2,w,h,door?theme.CardBg:HexColor(app.Background),18);
    card.PivotPoint=new Position(.5f,.5f,.5f);card.PositionUsesPivotPoint=true;
-   if(allTile)card.Add(new ImageView{ResourceUrl=Root+"all-apps.svg",Size2D=new Size2D(w,h)});
+   if(door)card.Add(new ImageView{ResourceUrl=Root+(stockHome?"stock-home.svg":"all-apps.svg"),Size2D=new Size2D(w,h),FittingMode=FittingModeType.ShrinkToFit});
    else AddAppArtwork(card,app,w,h);
    var ring=new View{Size2D=new Size2D(w,h),BackgroundColor=new Color(0,0,0,0),CornerRadius=new Vector4(18,18,18,18),BorderlineWidth=4,BorderlineColor=accent,Opacity=0};
    card.Add(ring);
    // Membership dot: in the All Apps list, an accented dot means "in your apps".
    if(allView&&!hidden.Contains(app.Id))card.Add(new View{Position2D=new Position2D(w-22,14),Size2D=new Size2D(10,10),BackgroundColor=accent,CornerRadius=new Vector4(5,5,5,5)});
-   string name=allTile?"All apps":app.Name;
-   string action=allTile?"menu:all":allView?"toggle:"+app.Id:"app:"+app.Id;
-   string description=allTile?"Every installed app · add or hide":allView?(hidden.Contains(app.Id)?"Select to add to your apps":"In your apps · Select to hide"):app.Description;
+   string name=stockHome?"Samsung home":allTile?"All apps":app.Name;
+   string action=stockHome?"app:"+AppLibrary.StockHomeAppId:allTile?"menu:all":allView?"toggle:"+app.Id:"app:"+app.Id;
+   string description=stockHome?"Stock Smart Hub · App Settings (12345)":allTile?"Every installed app · add or hide":allView?(hidden.Contains(app.Id)?"Select to add to your apps":"In your apps · Select to hide"):app.Description;
    var label=Text(name,x,y+h+14,w,38,27,ink,"Semibold");
    slots.Add(new Slot{Card=card,Shadow=shadow,FocusRing=ring,Label=label,Name=name,Action=action,Description=description,Row=i/5,X=x,Y=y,W=w,H=h});
   }
@@ -276,12 +321,19 @@ public sealed class QuietHome : NUIApplication
  {
   string key=app.Id+"@"+w+"x"+h;
   if(artworkCache.TryGetValue(key,out var cached))return cached;
-  bool cover=app.Fit=="cover",full=cover||app.Fit=="contain-full";
-  int iw=full?w:w-54,ih=full?h:h-40;var crop=app.Crop;
+  // "cover" fills the card, "contain-full" fits inside it edge to edge, and any
+  // other value keeps the padded letterbox this menu has always used.
+  bool padded=app.Fit!="cover"&&app.Fit!="contain-full";
+  int iw=padded?w-54:w,ih=padded?h-40:h;var crop=app.Crop;
+  if(crop==null&&app.Fit=="cover")crop=AppLibrary.CoverCrop(app.Width,app.Height,iw,ih);
   float cropWidth=crop==null?1:crop[2],cropHeight=crop==null?1:crop[3];
+  // ScaleToFill is only safe with a source region carrying the card's own ratio:
+  // on its own it grows past the view and the artwork bleeds over the neighbour.
+  // Nothing to crop means the ratios already agree, or the art size was never
+  // declared, and shrinking inside the box is correct in both cases.
   var image=new ImageView{
    Position2D=new Position2D((w-iw)/2,(h-ih)/2),Size2D=new Size2D(iw,ih),
-   FittingMode=cover?FittingModeType.ScaleToFill:FittingModeType.ShrinkToFit,
+   FittingMode=crop==null?FittingModeType.ShrinkToFit:FittingModeType.ScaleToFill,
    SamplingMode=SamplingModeType.BoxThenLanczos,
    DesiredWidth=(int)Math.Ceiling(iw*2/cropWidth),DesiredHeight=(int)Math.Ceiling(ih*2/cropHeight),
    ReleasePolicy=ReleasePolicyType.Destroyed,CornerRadius=new Vector4(18,18,18,18)};
@@ -316,7 +368,7 @@ public sealed class QuietHome : NUIApplication
  {
   int x=80+column*450,y=262+row*332,w=410,h=286;
   var card=Panel(x+w/2,y+h/2,w,h,theme.CardBg,24);card.PivotPoint=new Position(.5f,.5f,.5f);card.PositionUsesPivotPoint=true;
-  card.Add(new ImageView{ResourceUrl=Root+"quick-"+icon+".svg",Size2D=new Size2D(w,h)});
+  card.Add(new ImageView{ResourceUrl=Root+"quick-"+icon+".svg",Size2D=new Size2D(w,h),FittingMode=FittingModeType.ShrinkToFit});
   card.Add(Label(name,26,25,348,42,29,white,"Semibold"));
   var value=Label("",26,151,358,56,38,white,"Display");card.Add(value);
   card.Add(Label(description,26,226,370,34,20,new Color(.95f,.96f,1,1)));
@@ -326,7 +378,7 @@ public sealed class QuietHome : NUIApplication
  {
   var shadow=Add(new ImageView{ResourceUrl=Root+"shadow-"+shape+".svg",Position2D=new Position2D(x-24,y-10),Size2D=new Size2D(w+48,h+64)});
   var card=Panel(x+w/2,y+h/2,w,h,theme.CardBg,18);card.PivotPoint=new Position(.5f,.5f,.5f);card.PositionUsesPivotPoint=true;
-  card.Add(new ImageView{ResourceUrl=Root+asset,Size2D=new Size2D(w,h)});
+  card.Add(new ImageView{ResourceUrl=Root+asset,Size2D=new Size2D(w,h),FittingMode=FittingModeType.ShrinkToFit});
   var caption=Text(label,x,716,w,45,31,ink,"Semibold");
   Text(description,x,760,w,36,24,muted);
   var slot=new Slot{Card=card,Shadow=shadow,Label=caption,Name=label,Action=action,Description=description,Row=0,X=x,Y=y,W=w,H=h};slots.Add(slot);return slot;
@@ -359,7 +411,7 @@ public sealed class QuietHome : NUIApplication
   var card=Panel(x+126,917,253,126,theme.CardBg,22);card.PivotPoint=new Position(.5f,.5f,.5f);card.PositionUsesPivotPoint=true;
   var official=library.Find(a=>a.Id==action.Substring(action.IndexOf(':')+1));
   if(official!=null){card.BackgroundColor=HexColor(official.Background);AddAppArtwork(card,official,253,126);}
-  else card.Add(new ImageView{ResourceUrl=Root+"free-dock-"+asset+".svg",Size2D=new Size2D(253,126)});
+  else card.Add(new ImageView{ResourceUrl=Root+"free-dock-"+asset+".svg",Size2D=new Size2D(253,126),FittingMode=FittingModeType.ShrinkToFit});
   slots.Add(new Slot{Card=card,Shadow=shadow,Name=label,Action=action,Description=label,Row=1,X=x,Y=854,W=253,H=126});
  }
  void Toolbar(string label,string action,string icon,int n)

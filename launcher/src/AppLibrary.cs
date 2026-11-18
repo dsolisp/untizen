@@ -41,6 +41,35 @@ public static class AppLibrary
  }
  public static int PageCount(int count)=>(count+PageSize-1)/PageSize;
  public static int VisibleCount(int count,int page)=>Math.Max(0,Math.Min(PageSize,count-page*PageSize));
+ // "Your Apps" closes with system doors rather than apps: the installed list and
+ // Samsung's own home shell. This launcher takes Home and startup, and some
+ // surfaces exist only inside that shell - the Apps strip where "App Settings"
+ // and the developer-mode code live - so they stay one tile away.
+ // The stock-home door is unconditional; "All apps" needs a catalog to read.
+ public const string StockHomeAppId="com.samsung.tv.csfs";
+ public static int TileCount(int curated,int installedCount)=>curated+(installedCount>0?1:0)+1;
+ public static bool IsAllAppsTile(int index,int curated,int installedCount)=>installedCount>0&&index==curated;
+ public static bool IsStockHomeTile(int index,int curated,int installedCount)=>index>=curated+(installedCount>0?1:0);
+ // "cover" promises that the artwork fills the card and never crosses its edge.
+ // ImageView.ScaleToFill keeps the source ratio and grows PAST the view, so a
+ // square logo inside a 16:9 card paints over the rounded corners. The answer is
+ // a source region that already has the card's ratio: keep the full width and
+ // trim top and bottom when the art is taller than the box, the other way round
+ // when it is wider. Null means nothing to crop: same ratio, or an art size we
+ // were never told, and the caller must then shrink inside the box instead.
+ public static float[] CoverCrop(int sourceWidth,int sourceHeight,int boxWidth,int boxHeight)
+ {
+  if(sourceWidth<=0||sourceHeight<=0||boxWidth<=0||boxHeight<=0)return null;
+  float sourceAspect=(float)sourceWidth/sourceHeight,boxAspect=(float)boxWidth/boxHeight;
+  if(Math.Abs(sourceAspect-boxAspect)<0.01f)return null;
+  if(sourceAspect>boxAspect)
+  {
+   float wide=boxAspect/sourceAspect;
+   return new float[]{(1f-wide)/2f,0f,wide,1f};
+  }
+  float tall=sourceAspect/boxAspect;
+  return new float[]{0f,(1f-tall)/2f,1f,tall};
+ }
  // Return an absolute catalog index. -1 moves focus to the navigation tabs.
  public static int Move(int count,int absolute,string key)
  {
