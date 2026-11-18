@@ -2,15 +2,50 @@
 """Build locally; never redistribute Samsung reference assemblies."""
 import argparse
 import hashlib
+import json
 import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tarfile
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = ROOT / ".local/package"
 ARCHIVE = ROOT / ".local/package.tar.gz"
+
+
+def check_installed_catalog(assets):
+    """Refuse a deployable tree whose installed catalog lost its tile artwork.
+
+    `tv catalog` regenerates apps-installed.json from the TV, so this file is
+    generated, gitignored and invisible to CI. A run without Pillow once wrote
+    every entry with no Asset, and the launcher answered with its placeholder
+    tile: 39 dark boxes where the household expected logos. The only place to
+    catch that is the build that ships it.
+    """
+    path = assets / "apps-installed.json"
+    if not path.is_file():
+        return []  # no installed catalog: the curated menu ships as it always did
+    entries = json.loads(path.read_text())
+    if not entries:
+        return []
+    artwork = 0
+    problems = []
+    for entry in entries:
+        asset = entry.get("Asset") or ""
+        if not asset:
+            continue
+        if ".." in asset or not (assets / asset).is_file():
+            problems.append(f"{entry.get('Id', '?')}: artwork {asset!r} is not in the package")
+            continue
+        artwork += 1
+    if not problems and artwork == 0:
+        problems.append(
+            f"none of the {len(entries)} installed apps has artwork; "
+            "the launcher will paint every tile with its placeholder "
+            "(run tv.py catalog with Pillow, or restore launcher/assets/app-icons/installed/)")
+    return problems
 
 
 def stage_launcher():
@@ -28,6 +63,11 @@ def stage_launcher():
     if local_catalog.exists():
         shutil.copyfile(local_catalog, assets / "apps.json")
     (assets / "apps.local.json").unlink(missing_ok=True)
+    problems = check_installed_catalog(assets)
+    if problems:
+        for problem in problems:
+            print(f"apps-installed.json: {problem}", file=sys.stderr)
+        raise SystemExit(2)
     print(f"Deployable files: {PACKAGE.relative_to(ROOT)}/. Review the catalog and input mapping before use.")
 
 

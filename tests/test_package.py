@@ -25,6 +25,29 @@ class PackageTests(unittest.TestCase):
             self.assertTrue((ROOT / "launcher/assets" / asset).is_file(), asset)
         self.assertEqual(sum(bool(a.get("Utility")) for a in catalog), 1)
 
+    def test_installed_catalog_gate_ships_only_paintable_tiles(self):
+        # apps-installed.json is generated on the operator's machine, so this is
+        # the one place the "every tile fell back to the placeholder" damage can
+        # be caught before it reaches the TV.
+        with tempfile.TemporaryDirectory() as tmp:
+            assets = Path(tmp)
+            (assets / "app-icons/installed").mkdir(parents=True)
+            (assets / "app-icons/installed/netflix.png").write_bytes(b"\x89PNG")
+            self.assertEqual(build.check_installed_catalog(assets), [])  # no catalog yet
+
+            def write(entries):
+                (assets / "apps-installed.json").write_text(json.dumps(entries))
+
+            write([{"Id": "a", "Name": "A"}, {"Id": "b", "Name": "B"}])
+            self.assertEqual(len(build.check_installed_catalog(assets)), 1)  # all placeholders
+
+            write([{"Id": "a", "Asset": "app-icons/installed/netflix.png"}])
+            self.assertEqual(build.check_installed_catalog(assets), [])
+
+            write([{"Id": "a", "Asset": "app-icons/installed/gone.png"},
+                   {"Id": "b", "Asset": "../escape.svg"}])
+            self.assertEqual(len(build.check_installed_catalog(assets)), 2)
+
     def test_sources_json_assets_exist_and_hdmi_ids_are_unique(self):
         sources = json.loads((ROOT / "launcher/assets/sources.json").read_text())
         self.assertGreaterEqual(len(sources), 1)

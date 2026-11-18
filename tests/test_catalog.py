@@ -2,6 +2,7 @@ from pathlib import Path
 import base64
 import re
 import sys
+import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -12,9 +13,9 @@ try:
 except ImportError:
     HAVE_PIL = False
 
-from tv import (CATALOG_DENY, build_entries, catalog_command, curated_apps,
-                curated_ids, humanize, is_usable, parse_app_rows, save_icon,
-                tile_background)
+from tv import (CATALOG_DENY, attach_icons, build_entries, catalog_command,
+                curated_apps, curated_ids, humanize, is_usable, parse_app_rows,
+                save_icon, tile_background)
 
 
 def decode_recipe(command):
@@ -140,6 +141,61 @@ class CatalogToolTests(unittest.TestCase):
         finally:
             dest.unlink(missing_ok=True)
             dest.parent.rmdir()
+
+    def test_attach_icons_reuses_what_is_on_disk_without_pillow(self):
+        # The bug this guards: a Pillow-less `tv catalog` run dropped Asset from
+        # every entry while the icons sat in the package, so the launcher painted
+        # the whole installed catalog with its placeholder tile.
+        with tempfile.TemporaryDirectory() as tmp:
+            assets = Path(tmp)
+            (assets / "netflix.app.png").write_bytes(b"\x89PNG")
+            (assets / "empty.png").write_bytes(b"")
+            entries = [{"Id": "netflix.app", "Name": "Netflix", "Icon": "/i/a.png"},
+                       {"Id": "empty", "Name": "Empty", "Icon": "/i/b.png"}]
+            pulled, reused = attach_icons(
+                entries, assets, {}, with_icons=False, icon_limit=40,
+                pull=lambda remote, dest: self.fail("a pull needs Pillow"))
+            self.assertEqual((pulled, reused), (0, 1))
+            self.assertEqual(entries[0]["Asset"], "app-icons/installed/netflix.app.png")
+            self.assertNotIn("Asset", entries[1])  # a zero-byte file is no artwork
+
+    def test_attach_icons_reuse_keeps_the_painted_tile_colour(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            assets = Path(tmp)
+            (assets / "crunchy.png").write_bytes(b"\x89PNG")
+            entries = [{"Id": "crunchy", "Name": "Crunchyroll"}]
+            previous = {"crunchy": {"Background": "#984814"}}
+            attach_icons(entries, assets, previous, with_icons=False,
+                         icon_limit=40, pull=lambda remote, dest: "#000000")
+            self.assertEqual(entries[0]["Background"], "#984814")
+
+    def test_attach_icons_limit_caps_pulls_never_reuse(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            assets = Path(tmp)
+            (assets / "already.png").write_bytes(b"\x89PNG")
+            entries = [{"Id": "already", "Name": "Already"},
+                       {"Id": "one", "Name": "One", "Icon": "/i/one.png"},
+                       {"Id": "two", "Name": "Two", "Icon": "/i/two.png"}]
+            pulled, reused = attach_icons(
+                entries, assets, {}, with_icons=True, icon_limit=1,
+                pull=lambda remote, dest: tile_background((244, 117, 33)))
+            self.assertEqual((pulled, reused), (1, 1))
+            self.assertTrue(entries[0].get("Asset"))
+            self.assertTrue(entries[1].get("Asset"))
+            self.assertNotIn("Asset", entries[2])  # the limit stopped this pull
+
+    def test_attach_icons_survives_a_failing_pull(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            assets = Path(tmp)
+            entries = [{"Id": "picky", "Name": "Picky", "Icon": "/i/p.png"}]
+
+            def pull(remote, dest):
+                raise RuntimeError("icon not readable")
+
+            pulled, reused = attach_icons(entries, assets, {}, with_icons=True,
+                                          icon_limit=40, pull=pull)
+            self.assertEqual((pulled, reused), (0, 0))
+            self.assertNotIn("Asset", entries[0])
 
     def test_gitignore_covers_generated_catalog(self):
         text = (ROOT / ".gitignore").read_text()

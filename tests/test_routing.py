@@ -94,6 +94,16 @@ class LauncherUpdateRecipeTests(unittest.TestCase):
         for downloader in ("curl", "wget"):
             self.assertNotIn(downloader, self.text)
 
+    def test_it_clears_stale_scratch_instead_of_stopping_silently(self):
+        # A bare `test ! -e "$S/unpacked"` failed the second update of a run
+        # with no message, because the recipe never removes what it extracts.
+        self.assertNotIn('test ! -e "$S/unpacked"', self.text)
+        self.assertLess(self.text.index('if [ -e "$S/unpacked" ]'),
+                        self.text.index('mkdir "$S/unpacked"'))
+        self.assertIn("is not our extraction", self.text)
+        self.assertLess(self.text.index('app_launcher -u 5001 -s "$C"'),
+                        self.text.rindex('rm -rf "$S/unpacked"'))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -458,11 +458,43 @@ def save_icon(data, dest):
     return tile_background(mean[:3])
 
 
+def attach_icons(entries, assets, previous, *, with_icons, icon_limit, pull):
+    """Point each catalog entry at its tile artwork; returns (pulled, reused).
+
+    An icon that a previous run already fetched is reused even when pulling is
+    off (no Pillow, --no-icons, limit reached): reuse costs nothing, and an
+    entry left without Asset makes the launcher paint its placeholder tile.
+    Ceiling: `icon_limit` caps the bounded root reads that pulls cost, never
+    the reuse. `pull(remote, dest)` saves one icon and returns its tile colour.
+    """
+    pulled = reused = 0
+    for entry in entries:
+        remote = entry.pop("Icon", "")
+        safe = re.sub(r"[^A-Za-z0-9._-]", "-", entry["Id"])
+        dest = assets / f"{safe}.png"
+        if dest.is_file() and dest.stat().st_size:
+            entry["Asset"] = f"app-icons/installed/{dest.name}"
+            if previous.get(entry["Id"], {}).get("Background"):
+                entry["Background"] = previous[entry["Id"]]["Background"]
+            reused += 1
+            continue
+        if not with_icons or pulled >= icon_limit:
+            continue
+        if not remote.startswith("/") or not remote.lower().endswith((".png", ".jpg", ".jpeg")):
+            continue
+        try:
+            entry["Background"] = pull(remote, dest)
+            entry["Asset"] = f"app-icons/installed/{dest.name}"
+            pulled += 1
+        except Exception as error:
+            print(f"  icon skipped ({entry['Id']}): {error}")
+    return pulled, reused
+
+
 def run_catalog(args, model, profile):
     """Regenerate launcher/assets/apps-installed.json from this TV. Read-only.
 
-    Ceiling: apps installed after this run stay invisible until it runs again,
-    and each icon costs one bounded root read; --icon-limit caps that."""
+    Ceiling: apps installed after this run stay invisible until it runs again."""
     curated = curated_apps()
     stdout = run_readonly_root(args, model, catalog_command(profile, curated_ids(curated)))
     parsed = inventory.parse_sections(stdout)
@@ -487,29 +519,14 @@ def run_catalog(args, model, profile):
                 previous[old["Id"]] = old
     except (OSError, ValueError):
         previous = {}
-    pulled = reused = 0
-    for entry in entries:
-        remote = entry.pop("Icon", "")
-        if not with_icons or pulled + reused >= args.icon_limit:
-            continue
-        safe = re.sub(r"[^A-Za-z0-9._-]", "-", entry["Id"])
-        dest = assets / f"{safe}.png"
-        # A previous run already paid for this icon; keep its tile colour too.
-        if dest.is_file() and dest.stat().st_size:
-            entry["Asset"] = f"app-icons/installed/{dest.name}"
-            if previous.get(entry["Id"], {}).get("Background"):
-                entry["Background"] = previous[entry["Id"]]["Background"]
-            reused += 1
-            continue
-        if not remote.startswith("/") or not remote.lower().endswith((".png", ".jpg", ".jpeg")):
-            continue
-        try:
-            data = decode_pull(run_readonly_root(args, model, pull_command(remote)))
-            entry["Background"] = save_icon(data, dest)
-            entry["Asset"] = f"app-icons/installed/{dest.name}"
-            pulled += 1
-        except Exception as error:
-            print(f"  icon skipped ({entry['Id']}): {error}")
+    def pull(remote, dest):
+        data = decode_pull(run_readonly_root(args, model, pull_command(remote)))
+        return save_icon(data, dest)
+
+    pulled, reused = attach_icons(
+        entries, assets, previous,
+        with_icons=with_icons, icon_limit=args.icon_limit, pull=pull,
+    )
     catalog_path.write_text(json.dumps(entries, indent=2) + "\n")
     print(f"Wrote {catalog_path.relative_to(ROOT)} ({len(entries)} apps, "
           f"{pulled} icons pulled, {reused} reused).")
