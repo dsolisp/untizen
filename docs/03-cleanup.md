@@ -23,11 +23,22 @@ The [profile](../profiles/un75u8000ffxza-1300.9.json) splits the observed target
 | `context` | Disable AI/context suggestions and content-grab helpers | Related smart features stop working |
 | `smart-extras` | Reduce SmartThings, health, gaming-hub and ambience helpers | Some integrations become unavailable |
 | `light-shell` | Disable native sidebar and browser | Requires a working Quiet Home/settings bridge first |
+| `art-store` | Disable the Art Store service, the ambient tile in the stock home, its setup wizards and its support app | Ambient Mode shows a plain black screen instead of art or photos |
 | `tv-plus` | Disable Samsung TV Plus startup/app | TV Plus is unavailable until restored |
 
 The first four groups total 51 app IDs from the original cleanup. The
 sidebar/browser add two; the later TV Plus change adds one. This is not a
 count of 54 independent trackers. Several are ordinary optional features.
+
+`art-store` came from the QN85C's own snapshot. On that panel the artwork
+service was the largest single boot cost, so the group is worth checking on any
+TV that reports slow power-on. `light-shell` still needs the settings path
+verified first. On the QN85C the QuickLaunch bridge was refused, because
+`com.samsung.tv.quicklaunch` owns two `XF86More` rows on that firmware (one for
+itself, one for `org.tizen.function-osd`), so the group was applied with the
+vendor quick-settings panel and `org.tizen.menu` still in place: settings stay
+reachable, only the sidebar and browser stop. Read the rows before assuming one
+key means one row.
 
 The original owner separately uninstalled ESPN, Sling, Fubo, AMC+, Instagram,
 Phynd, Weekend Games, YouTube TV, Peacock and Angel Studios. Those were
@@ -110,6 +121,20 @@ tv exec --script recipes/snapshot.sh --arg uninstall-01
 tv exec --script recipes/uninstall-app.sh --arg <package> --arg confirm
 ```
 
+Owners do not think in ten-character ids, so the same recipe answers to the name:
+
+```sh
+tv exec --script recipes/uninstall-app.sh --arg find --arg ego
+tv exec --script recipes/uninstall-app.sh --arg remove --arg ego
+tv exec --script recipes/uninstall-app.sh --arg remove --arg ego --arg confirm
+```
+
+`find` lists every removable package whose id or app id contains the text.
+`remove` without `confirm` prints the single match and changes nothing; with
+`confirm` it uninstalls. A text that matches two packages is refused with both
+candidates rather than guessing, and a package that is loop-mounted (the Smarters
+container that carries Marea TV) is refused before even the preview.
+
 The second argument must be the literal `confirm`; the package name is
 whitelisted to `[A-Za-z0-9_.-]`; the container in the profile `container` and
 `settings_container` keys is refused. The recipe calls `pkgcmd -u -n` and
@@ -122,6 +147,17 @@ Uninstalling is not reversible by restoring a registry snapshot: the package
 files are gone. Reinstall from the store, or with `pkgcmd -i` for a `.wgt` you
 still hold. Start with the apps the owner named; do not bulk-remove from the
 list.
+
+Not every package can be removed this way. A widget registered outside the store
+answers `pkgcmd -u` with `General error [-1]` at 20 percent and keeps its row: on
+2026-11-13 three store apps left cleanly (Ego IPTV, Infinite IPTV Player, Net
+ipTV) while `MareaTv001`, the 2026-11-04 sideload that we later abandoned for the
+Smarters container, refused from root and refused the same way through `sdb
+uninstall`, which calls the same pkgmgr. The files are complete, nothing runs, no
+loop holds it. `remove` reports that outcome instead of pretending success. What
+is left is either hiding the tile from the launcher list, or deleting
+`/opt/usr/apps/<package>` plus its registry rows by hand, which is surgery on the
+package manager's database and only worth it for a package the owner insists on.
 
 ## Prevent selected services from starting
 

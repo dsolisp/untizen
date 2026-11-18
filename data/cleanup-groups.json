@@ -160,6 +160,18 @@
         "com.samsung.tv.home.sidebar",
         "org.tizen.browser"
       ]
+    },
+    "art-store": {
+      "description": "Samsung Art Store and its Ambient Mode helpers: the artwork service that keeps fetching previews, the ambient tile in the stock home, its setup wizards and its support app. Ambient Mode shows a plain black screen instead of art or photos.",
+      "risk": "medium",
+      "patterns": [
+        "org.tizen.art-app",
+        "com.samsung.tv.home.art",
+        "com.samsung.tv.coba.art",
+        "com.samsung.tv.wizard.art",
+        "com.samsung.tv.wizard.AmbientInfo",
+        "com.samsung.tv.ambient-support"
+      ]
     }
   }
 }

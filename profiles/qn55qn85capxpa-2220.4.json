@@ -16,13 +16,15 @@
       "context",
       "smart-extras",
       "gaming-hub",
-      "hotel-b2b"
+      "hotel-b2b",
+      "light-shell",
+      "art-store"
     ],
     "add": {},
     "remove": {},
-    "evidence": "556 app IDs read from this TV's registry on 2025-10-25. voice is deliberately NOT selected: the owner keeps Bixby. light-shell is deferred until the launcher and the settings bridge are validated. hotel-b2b and gaming-hub only exist on this panel line, which is why they are shared-catalog groups that this profile opts into and the U8000F profile does not.",
-    "applied": "60 of these IDs were disabled on the owner's TV in staged groups with a full .backup rollback in place."
+    "evidence": "556 app IDs read from this TV's registry on 2025-10-25. voice is deliberately NOT selected: the owner keeps Bixby. light-shell and art-store were opted in on 2026-11-05 after this unit's registry snapshot was re-read. Quiet Home is the verified home and startup app here. The settings bridge is NOT installed on this panel: its registry row count guard refused, because com.samsung.tv.quicklaunch owns two XF86More rows on this firmware (one for itself, one for org.tizen.function-osd), so the stock quick-settings panel is still Samsung's assembly. hotel-b2b and gaming-hub only exist on this panel line, which is why they are shared-catalog groups that this profile opts into and the U8000F profile does not.",
+    "applied": "60 of these IDs were disabled on the owner's TV in staged groups with a full .backup rollback in place. Ten SmartThings IDs went back to app_disable=false on 2026-11-05 at the owner's request, leaving 50 disabled. light-shell and art-store (8 IDs) were applied on 2026-11-05 from the boot-slow-01 snapshot, leaving 58 disabled."
   },
   "stop_markers": [],
-  "notes": "2023 Neo QLED 4K premium (QN85C). Different from tested U8000F (2025 entry-level). Firmware code T-PTMCUABC vs T-KSU2EFAKUC indicates different product line. Runtime compatible but packages/app IDs likely differ. stop_markers is empty on purpose: the U8000F unit/marker pairs were not re-inspected on this panel; do not invent them."
+  "notes": "2023 Neo QLED 4K premium (QN85C). Different from tested U8000F (2025 entry-level). Firmware code T-PTMCUABC vs T-KSU2EFAKUC indicates different product line. Runtime compatible but packages/app IDs likely differ. Art Store held ~30% of one core and ~110 MB from power-on on this panel, which is why art-store is opted in here. stop_markers is empty on purpose: the U8000F unit/marker pairs were not re-inspected on this panel; do not invent them."
 }
